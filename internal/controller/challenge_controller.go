@@ -34,6 +34,8 @@ type ChallengeReconciler struct {
 	Config Config
 	// Registry reads OCI packages. Nil refuses OCI sources.
 	Registry PackageRegistry
+	// TrustedRoot verifies keyless signatures. Nil refuses them.
+	TrustedRoot TrustedRoot
 }
 
 // fetchRetry is how long the operator waits before fetching a package again

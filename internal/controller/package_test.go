@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/opencontainers/go-digest"
+	"github.com/sigstore/sigstore-go/pkg/root"
+	"github.com/sigstore/sigstore-go/pkg/sign"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,6 +18,7 @@ import (
 	"github.com/Sigeth/opslab-core-go/api/v1alpha1"
 	"github.com/Sigeth/opslab-core-go/pkg/challenge"
 	"github.com/Sigeth/opslab-core-go/pkg/ocipkg"
+	"github.com/Sigeth/opslab-core-go/pkg/signing"
 )
 
 var pinnedImage = "docker.io/library/debian:13-slim@" + digest.FromString("debian").String()
@@ -23,20 +26,47 @@ var pinnedImage = "docker.io/library/debian:13-slim@" + digest.FromString("debia
 // fakeRegistry serves packages packed in memory, by reference.
 type fakeRegistry struct {
 	packages map[string]*ocipkg.Package
+	bundles  map[string][][]byte
 	err      error
 	fetches  int
 }
 
-func (f *fakeRegistry) Fetch(_ context.Context, ref string) (*ocipkg.Package, error) {
+func (f *fakeRegistry) Fetch(_ context.Context, ref string) (*ocipkg.Package, [][]byte, error) {
 	f.fetches++
 	if f.err != nil {
-		return nil, f.err
+		return nil, nil, f.err
 	}
 	p, ok := f.packages[ref]
 	if !ok {
-		return nil, errors.New("not found")
+		return nil, nil, errors.New("not found")
 	}
-	return p, nil
+	return p, f.bundles[ref], nil
+}
+
+// sign attaches a signature of the package at ref made with kp.
+func (f *fakeRegistry) sign(t *testing.T, ref string, kp *signing.KeyPair) {
+	t.Helper()
+	b, err := signing.Sign(f.packages[ref].OCIManifest, kp, sign.BundleOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.bundles == nil {
+		f.bundles = map[string][][]byte{}
+	}
+	f.bundles[ref] = append(f.bundles[ref], b)
+}
+
+func newKey(t *testing.T) (*signing.KeyPair, string) {
+	t.Helper()
+	kp, err := signing.GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, err := kp.GetPublicKeyPem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return kp, pub
 }
 
 // publish packs manifest with files and serves it at ref.
@@ -142,9 +172,14 @@ func TestChallengeFromOCIRefusals(t *testing.T) {
 		want     string
 		fetches  int
 	}{
-		"signed packages fail closed": {
+		"unsigned packages": {
 			strings.Replace(testManifest, "debian:13-slim", pinnedImage, 1),
-			v1alpha1.TrustPolicy{Keys: []string{"key"}}, "signature", 0,
+			v1alpha1.TrustPolicy{Keys: []string{"key"}}, "not signed", 1,
+		},
+		"keyless without a trusted root": {
+			strings.Replace(testManifest, "debian:13-slim", pinnedImage, 1),
+			v1alpha1.TrustPolicy{Keyless: []v1alpha1.KeylessIdentity{{Issuer: "https://issuer", SubjectRegExp: ".*"}}},
+			"no Sigstore trusted root", 1,
 		},
 		"unpinned images": {testManifest, unsigned, "pinned by digest", 1},
 		"name mismatch": {
@@ -192,5 +227,53 @@ func TestInstalledFilesRefuseAnotherDigest(t *testing.T) {
 	if _, err := installedFiles(context.Background(), newClient(t, cm), systemNS, ch); err == nil ||
 		!strings.Contains(err.Error(), "being updated") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestChallengeFromOCIVerifiesSignatures(t *testing.T) {
+	const ref = "registry.example/hello:0.1.0"
+	manifest := strings.Replace(testManifest, "debian:13-slim", pinnedImage, 1)
+	author, authorPub := newKey(t)
+	stranger, _ := newKey(t)
+	fingerprint, _ := signing.KeyFingerprint(author.GetPublicKey())
+	key := types.NamespacedName{Name: "hello"}
+
+	// Signed by a stranger only: refused.
+	reg := &fakeRegistry{}
+	reg.publish(t, ref, manifest, helloFiles)
+	reg.sign(t, ref, stranger)
+	c := newClient(t, ociChallenge(ref, v1alpha1.TrustPolicy{Keys: []string{authorPub}}))
+	r := &ChallengeReconciler{Client: c, Config: testConfig, Registry: reg}
+	doReconcile(t, r, key)
+	got := get(t, c, key, &v1alpha1.Challenge{})
+	if cond := readyCondition(t, got); cond.Status != metav1.ConditionFalse || !strings.Contains(cond.Message, "no signature matches") {
+		t.Fatalf("condition = %+v", cond)
+	}
+
+	// Also signed by the author: installed, and the signer is reported.
+	reg.sign(t, ref, author)
+	got.Generation = 2
+	if err := c.Update(context.Background(), got); err != nil {
+		t.Fatal(err)
+	}
+	doReconcile(t, r, key)
+	got = get(t, c, key, &v1alpha1.Challenge{})
+	if cond := readyCondition(t, got); cond.Status != metav1.ConditionTrue || got.Status.Signer != "key "+fingerprint {
+		t.Fatalf("condition = %+v, signer = %q", cond, got.Status.Signer)
+	}
+}
+
+func TestChallengeFromOCIRetriesTrustedRootFailures(t *testing.T) {
+	const ref = "registry.example/hello:0.1.0"
+	reg := &fakeRegistry{}
+	reg.publish(t, ref, strings.Replace(testManifest, "debian:13-slim", pinnedImage, 1), helloFiles)
+	trust := v1alpha1.TrustPolicy{Keyless: []v1alpha1.KeylessIdentity{{Issuer: "https://issuer", SubjectRegExp: ".*"}}}
+	c := newClient(t, ociChallenge(ref, trust))
+	r := &ChallengeReconciler{Client: c, Config: testConfig, Registry: reg,
+		TrustedRoot: func(context.Context) (root.TrustedMaterial, error) { return nil, errors.New("tuf unreachable") }}
+	res := doReconcile(t, r, types.NamespacedName{Name: "hello"})
+	cond := readyCondition(t, get(t, c, types.NamespacedName{Name: "hello"}, &v1alpha1.Challenge{}))
+	if cond.Reason != "FetchFailed" || !strings.Contains(cond.Message, "tuf unreachable") || res.RequeueAfter != fetchRetry {
+		t.Fatalf("condition = %+v, requeue = %v", cond, res.RequeueAfter)
 	}
 }

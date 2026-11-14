@@ -5,6 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+
+	"github.com/sigstore/sigstore-go/pkg/root"
+	"github.com/sigstore/sigstore-go/pkg/tuf"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -17,12 +21,14 @@ import (
 	"github.com/Sigeth/opslab-core-go/pkg/challenge"
 	"github.com/Sigeth/opslab-core-go/pkg/ocipkg"
 	"github.com/Sigeth/opslab-core-go/pkg/project"
+	"github.com/Sigeth/opslab-core-go/pkg/signing"
 )
 
 // PackageRegistry reads packages from OCI registries.
 type PackageRegistry interface {
-	// Fetch resolves ref and reads the package it points to.
-	Fetch(ctx context.Context, ref string) (*ocipkg.Package, error)
+	// Fetch resolves ref and reads the package it points to, with the
+	// Sigstore bundles attached to it.
+	Fetch(ctx context.Context, ref string) (*ocipkg.Package, [][]byte, error)
 }
 
 // RemoteRegistry reads packages from remote registries.
@@ -31,19 +37,61 @@ type RemoteRegistry struct {
 }
 
 // Fetch implements PackageRegistry.
-func (r RemoteRegistry) Fetch(ctx context.Context, ref string) (*ocipkg.Package, error) {
+func (r RemoteRegistry) Fetch(ctx context.Context, ref string) (*ocipkg.Package, [][]byte, error) {
 	repo, parsed, err := r.Remote.Repository(ref)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if parsed.Reference == "" {
-		return nil, fmt.Errorf("%s: name a tag or a digest", ref)
+		return nil, nil, fmt.Errorf("%s: name a tag or a digest", ref)
 	}
 	desc, err := repo.Resolve(ctx, parsed.Reference)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return ocipkg.Fetch(ctx, repo, desc)
+	pkg, err := ocipkg.Fetch(ctx, repo, desc)
+	if err != nil {
+		return nil, nil, err
+	}
+	bundles, err := signing.Bundles(ctx, repo, desc)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pkg, bundles, nil
+}
+
+// TrustedRoot returns the Sigstore trusted root for keyless signatures. It
+// is only called for sources trusting keyless identities, so key-only and
+// air-gapped installs never need it.
+type TrustedRoot func(ctx context.Context) (root.TrustedMaterial, error)
+
+// SigstoreTrustedRoot loads the trusted root from path when set (air-gapped
+// installs), or else from the Sigstore public-good TUF repository (kept in
+// memory and refreshed by sigstore-go). A failed load is retried at the next
+// call.
+func SigstoreTrustedRoot(path string) TrustedRoot {
+	var (
+		mu     sync.Mutex
+		loaded root.TrustedMaterial
+	)
+	return func(context.Context) (root.TrustedMaterial, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if loaded != nil {
+			return loaded, nil
+		}
+		var err error
+		if path != "" {
+			loaded, err = root.NewTrustedRootFromPath(path)
+		} else {
+			loaded, err = root.NewLiveTrustedRoot(tuf.DefaultOptions().WithDisableLocalCache())
+		}
+		if err != nil {
+			loaded = nil
+			return nil, fmt.Errorf("loading the Sigstore trusted root: %w", err)
+		}
+		return loaded, nil
+	}
 }
 
 // fetchError is a failure to reach a registry: the operator retries.
@@ -83,16 +131,25 @@ func (r *ChallengeReconciler) resolveOCI(ctx context.Context, ch *v1alpha1.Chall
 		}
 	}
 
-	if !src.Trust.AllowUnsigned {
-		// Fail closed until signatures are verified (D40).
-		return nil, errors.New("signature verification is not supported by this operator version: only trust.allowUnsigned packages can be installed")
-	}
 	if r.Registry == nil {
 		return nil, errors.New("this operator has no registry access")
 	}
-	fetched, err := r.Registry.Fetch(ctx, src.Ref)
+	fetched, bundles, err := r.Registry.Fetch(ctx, src.Ref)
 	if err != nil {
 		return nil, fetchError{fmt.Errorf("fetching %s: %w", src.Ref, err)}
+	}
+	verifier := signing.Verifier{}
+	if len(src.Trust.Keyless) > 0 {
+		if r.TrustedRoot == nil {
+			return nil, errors.New("this operator cannot verify keyless signatures (no Sigstore trusted root)")
+		}
+		if verifier.TrustedRoot, err = r.TrustedRoot(ctx); err != nil {
+			return nil, fetchError{err}
+		}
+	}
+	signer, err := verifier.Verify(src.Trust, fetched.OCIManifest, bundles)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", src.Ref, err)
 	}
 	pkg, files := fetched.Manifest, fetched.Files
 	if pkg.Metadata.Name != ch.Name {
@@ -109,7 +166,7 @@ func (r *ChallengeReconciler) resolveOCI(ctx context.Context, ch *v1alpha1.Chall
 		return nil, err
 	}
 	challenge.SetDefaults(pkg)
-	return &resolvedPackage{pkg: pkg, digest: digest, filesConfigMap: name}, nil
+	return &resolvedPackage{pkg: pkg, digest: digest, signer: signer, filesConfigMap: name}, nil
 }
 
 // writePackageFiles stores the files of an installed package in a ConfigMap

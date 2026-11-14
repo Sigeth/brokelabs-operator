@@ -45,6 +45,7 @@ func main() {
 		operatorPods string
 		gatewayPods  string
 		plainHTTP    string
+		trustedRoot  string
 		cfg          controller.Config
 	)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "Address of the metrics endpoint; 0 disables it.")
@@ -58,6 +59,7 @@ func main() {
 	flag.StringVar(&operatorPods, "operator-pod-labels", "app.kubernetes.io/name=operator", "Labels of the operator's pods (k=v,...), allowed to reach vm machines over SSH.")
 	flag.StringVar(&gatewayPods, "gateway-pod-labels", "app.kubernetes.io/name=gateway", "Labels of the gateway's pods (k=v,...), allowed to reach vm machines over SSH.")
 	flag.StringVar(&plainHTTP, "plain-http-registries", "", "Registries reached over plain HTTP (host:port,...), for local test registries only.")
+	flag.StringVar(&trustedRoot, "sigstore-trusted-root", "", "Sigstore trusted root (JSON) verifying keyless signatures, for air-gapped installs. Default: fetched from the Sigstore public-good TUF repository when first needed.")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -111,7 +113,8 @@ func main() {
 	registry := controller.RemoteRegistry{Remote: ocipkg.Remote{
 		PlainHTTP: func(host string) bool { return host != "" && slices.Contains(plainHTTPRegistries, host) },
 	}}
-	must((&controller.ChallengeReconciler{Client: mgr.GetClient(), Config: cfg, Registry: registry}).SetupWithManager(mgr), "setting up Challenge controller")
+	must((&controller.ChallengeReconciler{Client: mgr.GetClient(), Config: cfg, Registry: registry,
+		TrustedRoot: controller.SigstoreTrustedRoot(trustedRoot)}).SetupWithManager(mgr), "setting up Challenge controller")
 	must((&controller.ChallengeInstanceReconciler{
 		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Config: cfg, Exec: exec, SSH: sshexec.New(),
 	}).SetupWithManager(mgr), "setting up ChallengeInstance controller")
