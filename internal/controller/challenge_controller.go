@@ -55,17 +55,23 @@ func (r *ChallengeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 	// A catalog challenge belongs to its source: removing the source removes
 	// the challenge, and with it its instances.
-	var source client.Object
-	if src := ch.Spec.Source.Catalog; src != nil {
+	owned := false
+	if src := ch.Spec.Source.Catalog; src == nil {
+		owned = setOwner(&ch, "CatalogSource", nil)
+	} else {
 		var cs v1alpha1.CatalogSource
 		switch err := r.Get(ctx, types.NamespacedName{Name: src.Source}, &cs); {
 		case err == nil:
-			source = &cs
-		case !apierrors.IsNotFound(err):
+			owned = setOwner(&ch, "CatalogSource", &cs)
+		case apierrors.IsNotFound(err):
+			// The source is gone or not created yet: keep a reference to it,
+			// so the garbage collector removes the challenge with its source.
+			owned = keepOwnersNamed(&ch, "CatalogSource", src.Source)
+		default:
 			return ctrl.Result{}, err
 		}
 	}
-	if setOwner(&ch, "CatalogSource", source) {
+	if owned {
 		if err := r.Update(ctx, &ch); err != nil {
 			if apierrors.IsConflict(err) {
 				return ctrl.Result{Requeue: true}, nil

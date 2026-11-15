@@ -36,3 +36,17 @@ func setOwner(obj client.Object, kind string, owner client.Object) bool {
 	obj.SetOwnerReferences(kept)
 	return true
 }
+
+// keepOwnersNamed removes the owners of that kind of obj not named name. It
+// reports whether obj changed.
+func keepOwnersNamed(obj client.Object, kind, name string) bool {
+	refs := obj.GetOwnerReferences()
+	kept := slices.DeleteFunc(slices.Clone(refs), func(ref metav1.OwnerReference) bool {
+		return ref.APIVersion == v1alpha1.GroupVersion.String() && ref.Kind == kind && ref.Name != name
+	})
+	if len(kept) == len(refs) {
+		return false
+	}
+	obj.SetOwnerReferences(kept)
+	return true
+}

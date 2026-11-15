@@ -44,6 +44,16 @@ func TestCatalogChallengesBelongToTheirSource(t *testing.T) {
 		t.Fatalf("a second reconciliation updated the challenge: owners = %+v", again.OwnerReferences)
 	}
 
+	// The source is deleted: the reference stays, for the garbage collector.
+	if err := c.Delete(context.Background(), cs); err != nil {
+		t.Fatal(err)
+	}
+	doReconcile(t, r, key)
+	got = get(t, c, key, &v1alpha1.Challenge{})
+	if uids := ownerUIDs(got.OwnerReferences, "CatalogSource"); len(uids) != 1 {
+		t.Fatalf("the owner reference to a deleted source must stay: %+v", got.OwnerReferences)
+	}
+
 	// Installed from elsewhere: the source no longer owns it.
 	got.Spec.Source = v1alpha1.ChallengeSource{OCI: &v1alpha1.OCIPackageRef{Ref: "registry.example/hello:0.1.0", Trust: unsigned}}
 	if err := c.Update(context.Background(), got); err != nil {
