@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/Sigeth/opslab-core-go/api/v1alpha1"
+	"github.com/Sigeth/opslab-core-go/pkg/catalog"
 	"github.com/Sigeth/opslab-core-go/pkg/challenge"
 	"github.com/Sigeth/opslab-core-go/pkg/ocipkg"
 	"github.com/Sigeth/opslab-core-go/pkg/project"
@@ -58,6 +59,30 @@ func (r RemoteRegistry) Fetch(ctx context.Context, ref string) (*ocipkg.Package,
 		return nil, nil, err
 	}
 	return pkg, bundles, nil
+}
+
+// FetchIndex implements IndexRegistry.
+func (r RemoteRegistry) FetchIndex(ctx context.Context, ref string) (*catalog.Index, [][]byte, error) {
+	repo, parsed, err := r.Remote.Repository(ref)
+	if err != nil {
+		return nil, nil, err
+	}
+	if parsed.Reference == "" {
+		return nil, nil, fmt.Errorf("%s: name a tag or a digest", ref)
+	}
+	desc, err := repo.Resolve(ctx, parsed.Reference)
+	if err != nil {
+		return nil, nil, err
+	}
+	idx, err := catalog.Fetch(ctx, repo, desc)
+	if err != nil {
+		return nil, nil, err
+	}
+	bundles, err := signing.Bundles(ctx, repo, desc)
+	if err != nil {
+		return nil, nil, err
+	}
+	return idx, bundles, nil
 }
 
 // TrustedRoot returns the Sigstore trusted root for keyless signatures. It
@@ -113,14 +138,36 @@ func packageConfigMapName(challengeName string) string {
 	return "challenge-" + challengeName + "-package"
 }
 
-// resolveOCI installs a package from a registry. The package is fetched once
-// per generation of the Challenge: later reconciliations keep the digest that
-// was installed, so a moved tag never changes a challenge behind the admin's
-// back.
-func (r *ChallengeReconciler) resolveOCI(ctx context.Context, ch *v1alpha1.Challenge) (*resolvedPackage, error) {
-	src := ch.Spec.Source.OCI
+// resolveCatalog installs a version listed by a CatalogSource, from the last
+// index it verified, with the trust policy of that source.
+func (r *ChallengeReconciler) resolveCatalog(ctx context.Context, ch *v1alpha1.Challenge) (*resolvedPackage, error) {
+	src := ch.Spec.Source.Catalog
+	var cs v1alpha1.CatalogSource
+	if err := r.Get(ctx, types.NamespacedName{Name: src.Source}, &cs); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("catalog source %q not found", src.Source)
+		}
+		return nil, err
+	}
+	if src.Name != ch.Name {
+		return nil, fmt.Errorf("the Challenge must be named after its package %q", src.Name)
+	}
+	ref, ok := catalog.Find(cs.Status.Packages, src.Name, src.Version)
+	if !ok {
+		return nil, fmt.Errorf("%s %s is not listed by catalog source %q", src.Name, src.Version, src.Source)
+	}
+	return r.resolveRef(ctx, ch, ref, cs.Spec.Trust)
+}
+
+// resolveRef installs the package at ref, verified against trust. The
+// package is fetched once per generation of the Challenge: later
+// reconciliations keep the digest that was installed, so a moved tag never
+// changes a challenge behind the admin's back. A ref pinned to another digest
+// is always fetched.
+func (r *ChallengeReconciler) resolveRef(ctx context.Context, ch *v1alpha1.Challenge, ref string, trust v1alpha1.TrustPolicy) (*resolvedPackage, error) {
 	name := packageConfigMapName(ch.Name)
-	if st := ch.Status; st.ObservedGeneration == ch.Generation && st.Package != nil && st.Digest != "" && st.FilesConfigMap == name {
+	if st := ch.Status; st.ObservedGeneration == ch.Generation && st.Package != nil && st.Digest != "" && st.FilesConfigMap == name &&
+		pinnedTo(ref, st.Digest) {
 		var cm corev1.ConfigMap
 		err := r.Get(ctx, types.NamespacedName{Namespace: r.Config.SystemNamespace, Name: name}, &cm)
 		if err == nil && cm.Annotations[v1alpha1.PackageDigestAnnotation] == st.Digest {
@@ -134,22 +181,17 @@ func (r *ChallengeReconciler) resolveOCI(ctx context.Context, ch *v1alpha1.Chall
 	if r.Registry == nil {
 		return nil, errors.New("this operator has no registry access")
 	}
-	fetched, bundles, err := r.Registry.Fetch(ctx, src.Ref)
+	fetched, bundles, err := r.Registry.Fetch(ctx, ref)
 	if err != nil {
-		return nil, fetchError{fmt.Errorf("fetching %s: %w", src.Ref, err)}
+		return nil, fetchError{fmt.Errorf("fetching %s: %w", ref, err)}
 	}
-	verifier := signing.Verifier{}
-	if len(src.Trust.Keyless) > 0 {
-		if r.TrustedRoot == nil {
-			return nil, errors.New("this operator cannot verify keyless signatures (no Sigstore trusted root)")
-		}
-		if verifier.TrustedRoot, err = r.TrustedRoot(ctx); err != nil {
-			return nil, fetchError{err}
-		}
-	}
-	signer, err := verifier.Verify(src.Trust, fetched.OCIManifest, bundles)
+	verifier, err := newVerifier(ctx, r.TrustedRoot, trust)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", src.Ref, err)
+		return nil, err
+	}
+	signer, err := verifier.Verify(trust, fetched.OCIManifest, bundles)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", ref, err)
 	}
 	pkg, files := fetched.Manifest, fetched.Files
 	if pkg.Metadata.Name != ch.Name {
@@ -167,6 +209,32 @@ func (r *ChallengeReconciler) resolveOCI(ctx context.Context, ch *v1alpha1.Chall
 	}
 	challenge.SetDefaults(pkg)
 	return &resolvedPackage{pkg: pkg, digest: digest, signer: signer, filesConfigMap: name}, nil
+}
+
+// newVerifier returns a signature verifier for trust, loading the Sigstore
+// trusted root only when trust lists keyless identities.
+func newVerifier(ctx context.Context, trustedRoot TrustedRoot, trust v1alpha1.TrustPolicy) (signing.Verifier, error) {
+	if len(trust.Keyless) == 0 {
+		return signing.Verifier{}, nil
+	}
+	if trustedRoot == nil {
+		return signing.Verifier{}, errors.New("this operator cannot verify keyless signatures (no Sigstore trusted root)")
+	}
+	tm, err := trustedRoot(ctx)
+	if err != nil {
+		return signing.Verifier{}, fetchError{err}
+	}
+	return signing.Verifier{TrustedRoot: tm}, nil
+}
+
+// pinnedTo reports whether ref names no digest or the given one.
+func pinnedTo(ref, digest string) bool {
+	parsed, err := ocipkg.ParseImage(ref)
+	if err != nil {
+		return false
+	}
+	d, err := parsed.Digest()
+	return err != nil || d.String() == digest
 }
 
 // writePackageFiles stores the files of an installed package in a ConfigMap

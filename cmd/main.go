@@ -113,8 +113,11 @@ func main() {
 	registry := controller.RemoteRegistry{Remote: ocipkg.Remote{
 		PlainHTTP: func(host string) bool { return host != "" && slices.Contains(plainHTTPRegistries, host) },
 	}}
+	trustedRootLoader := controller.SigstoreTrustedRoot(trustedRoot)
+	must((&controller.CatalogSourceReconciler{Client: mgr.GetClient(), Registry: registry, TrustedRoot: trustedRootLoader}).
+		SetupWithManager(mgr), "setting up CatalogSource controller")
 	must((&controller.ChallengeReconciler{Client: mgr.GetClient(), Config: cfg, Registry: registry,
-		TrustedRoot: controller.SigstoreTrustedRoot(trustedRoot)}).SetupWithManager(mgr), "setting up Challenge controller")
+		TrustedRoot: trustedRootLoader}).SetupWithManager(mgr), "setting up Challenge controller")
 	must((&controller.ChallengeInstanceReconciler{
 		Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Config: cfg, Exec: exec, SSH: sshexec.New(),
 	}).SetupWithManager(mgr), "setting up ChallengeInstance controller")

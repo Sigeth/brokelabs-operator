@@ -106,7 +106,7 @@ func newClient(t *testing.T, objs ...client.Object) client.Client {
 	}
 	return fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(objs...).
 		WithTypeConverters(clientgoapplyconfigurations.NewTypeConverter(builtin), deducedViaUnstructured{managedfields.NewDeducedTypeConverter()}).
-		WithStatusSubresource(&v1alpha1.Challenge{}, &v1alpha1.ChallengeInstance{}, &v1alpha1.CheckRun{}, &corev1.Pod{}, &batchv1.Job{}, &kubevirtv1.VirtualMachineInstance{}).Build()
+		WithStatusSubresource(&v1alpha1.Challenge{}, &v1alpha1.CatalogSource{}, &v1alpha1.ChallengeInstance{}, &v1alpha1.CheckRun{}, &corev1.Pod{}, &batchv1.Job{}, &kubevirtv1.VirtualMachineInstance{}).Build()
 }
 
 func inlineChallenge(t *testing.T, manifest string) (*v1alpha1.Challenge, *corev1.ConfigMap) {

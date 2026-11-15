@@ -45,6 +45,7 @@ const fetchRetry = time.Minute
 // +kubebuilder:rbac:groups=opslab.io,resources=challenges,verbs=get;list;watch
 // +kubebuilder:rbac:groups=opslab.io,resources=challenges/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=opslab.io,resources=platformconfigs,verbs=get;list;watch
+// +kubebuilder:rbac:groups=opslab.io,resources=catalogsources,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 
 // Reconcile implements reconcile.Reconciler.
@@ -102,9 +103,11 @@ func (r *ChallengeReconciler) resolve(ctx context.Context, ch *v1alpha1.Challeng
 	case src.Inline != nil:
 		return r.resolveInline(ctx, ch)
 	case src.OCI != nil:
-		return r.resolveOCI(ctx, ch)
+		return r.resolveRef(ctx, ch, src.OCI.Ref, src.OCI.Trust)
+	case src.Catalog != nil:
+		return r.resolveCatalog(ctx, ch)
 	default:
-		return nil, errors.New("catalog sources are not supported by this operator version")
+		return nil, errors.New("the Challenge has no source")
 	}
 }
 
@@ -224,6 +227,16 @@ func (r *ChallengeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}
 		return reqs
 	}
+	fromCatalog := func(ctx context.Context, obj client.Object) []reconcile.Request {
+		var reqs []reconcile.Request
+		for _, req := range all(ctx, obj) {
+			var ch v1alpha1.Challenge
+			if r.Get(ctx, req.NamespacedName, &ch) == nil && ch.Spec.Source.Catalog != nil && ch.Spec.Source.Catalog.Source == obj.GetName() {
+				reqs = append(reqs, req)
+			}
+		}
+		return reqs
+	}
 	usingConfigMap := func(ctx context.Context, obj client.Object) []reconcile.Request {
 		var reqs []reconcile.Request
 		for _, req := range all(ctx, obj) {
@@ -239,6 +252,7 @@ func (r *ChallengeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&v1alpha1.Challenge{}).
 		Owns(&corev1.ConfigMap{}).
 		Watches(&v1alpha1.PlatformConfig{}, handler.EnqueueRequestsFromMapFunc(all)).
+		Watches(&v1alpha1.CatalogSource{}, handler.EnqueueRequestsFromMapFunc(fromCatalog)).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(usingConfigMap)).
 		Named("challenge").
 		Complete(r)
