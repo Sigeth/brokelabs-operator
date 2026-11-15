@@ -129,6 +129,7 @@ type resolvedPackage struct {
 	pkg            *v1alpha1.ChallengePackage // defaulted
 	digest         string
 	signer         string
+	perms          *v1alpha1.RequiredPermissions
 	filesConfigMap string
 }
 
@@ -152,11 +153,11 @@ func (r *ChallengeReconciler) resolveCatalog(ctx context.Context, ch *v1alpha1.C
 	if src.Name != ch.Name {
 		return nil, fmt.Errorf("the Challenge must be named after its package %q", src.Name)
 	}
-	ref, ok := catalog.Find(cs.Status.Packages, src.Name, src.Version)
+	listed, ok := catalog.Find(cs.Status.Packages, src.Name, src.Version)
 	if !ok {
 		return nil, fmt.Errorf("%s %s is not listed by catalog source %q", src.Name, src.Version, src.Source)
 	}
-	return r.resolveRef(ctx, ch, ref, cs.Spec.Trust)
+	return r.resolveRef(ctx, ch, listed.Ref, cs.Spec.Trust, listed.Permissions)
 }
 
 // resolveRef installs the package at ref, verified against trust. The
@@ -164,14 +165,21 @@ func (r *ChallengeReconciler) resolveCatalog(ctx context.Context, ch *v1alpha1.C
 // reconciliations keep the digest that was installed, so a moved tag never
 // changes a challenge behind the admin's back. A ref pinned to another digest
 // is always fetched.
-func (r *ChallengeReconciler) resolveRef(ctx context.Context, ch *v1alpha1.Challenge, ref string, trust v1alpha1.TrustPolicy) (*resolvedPackage, error) {
+//
+// listed are the permissions a catalog lists for the package (nil for other
+// sources): the package must need exactly those, the ones the admin saw.
+func (r *ChallengeReconciler) resolveRef(ctx context.Context, ch *v1alpha1.Challenge, ref string, trust v1alpha1.TrustPolicy,
+	listed *v1alpha1.RequiredPermissions) (*resolvedPackage, error) {
 	name := packageConfigMapName(ch.Name)
 	if st := ch.Status; st.ObservedGeneration == ch.Generation && st.Package != nil && st.Digest != "" && st.FilesConfigMap == name &&
-		pinnedTo(ref, st.Digest) {
+		st.Permissions != nil && pinnedTo(ref, st.Digest) {
+		if err := checkListed(listed, st.Permissions); err != nil {
+			return nil, err
+		}
 		var cm corev1.ConfigMap
 		err := r.Get(ctx, types.NamespacedName{Namespace: r.Config.SystemNamespace, Name: name}, &cm)
 		if err == nil && cm.Annotations[v1alpha1.PackageDigestAnnotation] == st.Digest {
-			return &resolvedPackage{pkg: st.Package, digest: st.Digest, signer: st.Signer, filesConfigMap: name}, nil
+			return &resolvedPackage{pkg: st.Package, digest: st.Digest, signer: st.Signer, perms: st.Permissions, filesConfigMap: name}, nil
 		}
 		if err != nil && !apierrors.IsNotFound(err) {
 			return nil, err
@@ -203,12 +211,28 @@ func (r *ChallengeReconciler) resolveRef(ctx context.Context, ch *v1alpha1.Chall
 	if unpinned := ocipkg.Unpinned(pkg); len(unpinned) > 0 {
 		return nil, fmt.Errorf("images must be pinned by digest (built with '%s challenge build'): %s", project.Name, strings.Join(unpinned, ", "))
 	}
+	perms, err := challenge.Permissions(pkg, files)
+	if err != nil {
+		return nil, fmt.Errorf("invalid package: %w", err)
+	}
+	if err := checkListed(listed, perms); err != nil {
+		return nil, err
+	}
 	digest := fetched.Descriptor.Digest.String()
 	if err := r.writePackageFiles(ctx, ch, name, digest, files); err != nil {
 		return nil, err
 	}
 	challenge.SetDefaults(pkg)
-	return &resolvedPackage{pkg: pkg, digest: digest, signer: signer, filesConfigMap: name}, nil
+	return &resolvedPackage{pkg: pkg, digest: digest, signer: signer, perms: perms, filesConfigMap: name}, nil
+}
+
+// checkListed refuses a package whose permissions differ from the ones its
+// catalog lists.
+func checkListed(listed, perms *v1alpha1.RequiredPermissions) error {
+	if listed != nil && !challenge.SamePermissions(listed, perms) {
+		return errors.New("the package needs other permissions than its catalog lists: the catalog index is wrong or the package was replaced")
+	}
+	return nil
 }
 
 // newVerifier returns a signature verifier for trust, loading the Sigstore

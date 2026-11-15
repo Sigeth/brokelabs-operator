@@ -42,7 +42,7 @@ func publishIndex(t *testing.T, reg *fakeRegistry, ref string, kp *signing.KeyPa
 	pinned := "registry.example/hello@" + pkg.Descriptor.Digest.String()
 	reg.packages[pinned] = pkg
 	reg.bundles[pinned] = reg.bundles[ref]
-	if err := catalog.Add(idx, pkg.Manifest, pinned); err != nil {
+	if err := catalog.Add(idx, pkg.Manifest, pkg.Files, pinned); err != nil {
 		t.Fatal(err)
 	}
 	store := memory.New()

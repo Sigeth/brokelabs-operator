@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"slices"
 	"strings"
 	"testing/fstest"
 	"time"
@@ -65,6 +64,7 @@ func (r *ChallengeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	inst, resolveErr := r.resolve(ctx, &ch)
 	if resolveErr != nil {
 		status.Package, status.Digest, status.Signer, status.FilesConfigMap, status.Runnable = nil, "", "", "", false
+		status.Permissions = nil
 		status.UnrunnableReason = ""
 		reason := "Invalid"
 		if errors.As(resolveErr, new(fetchError)) {
@@ -74,8 +74,9 @@ func (r *ChallengeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	} else {
 		pkg := inst.pkg
 		status.Package, status.Digest, status.Signer, status.FilesConfigMap = pkg, inst.digest, inst.signer, inst.filesConfigMap
+		status.Permissions = inst.perms
 		status.Mirrored = false // the registry mirror comes later in M3 (D39)
-		status.UnrunnableReason = unrunnableReason(r.Config, pkg, platform)
+		status.UnrunnableReason = unrunnableReason(r.Config, pkg, inst.perms, platform)
 		status.Runnable = status.UnrunnableReason == ""
 		setCondition(&status.Conditions, ch.Generation, metav1.ConditionTrue, "Installed",
 			fmt.Sprintf("%s %s installed", pkg.Metadata.Name, pkg.Metadata.Version))
@@ -103,7 +104,7 @@ func (r *ChallengeReconciler) resolve(ctx context.Context, ch *v1alpha1.Challeng
 	case src.Inline != nil:
 		return r.resolveInline(ctx, ch)
 	case src.OCI != nil:
-		return r.resolveRef(ctx, ch, src.OCI.Ref, src.OCI.Trust)
+		return r.resolveRef(ctx, ch, src.OCI.Ref, src.OCI.Trust, nil)
 	case src.Catalog != nil:
 		return r.resolveCatalog(ctx, ch)
 	default:
@@ -129,8 +130,12 @@ func (r *ChallengeReconciler) resolveInline(ctx context.Context, ch *v1alpha1.Ch
 	if err != nil {
 		return nil, err
 	}
+	perms, err := challenge.Permissions(pkg, bundle)
+	if err != nil {
+		return nil, fmt.Errorf("invalid package: %w", err)
+	}
 	challenge.SetDefaults(pkg)
-	return &resolvedPackage{pkg: pkg, digest: digest, filesConfigMap: inline.FilesConfigMap}, nil
+	return &resolvedPackage{pkg: pkg, digest: digest, perms: perms, filesConfigMap: inline.FilesConfigMap}, nil
 }
 
 // inlineFiles reads the files of an inline package from its ConfigMap.
@@ -164,7 +169,10 @@ func mapFS(files map[string][]byte) fs.FS {
 func apiEqual(a, b any) bool { return equality.Semantic.DeepEqual(a, b) }
 
 // unrunnableReason explains why the cluster cannot run a package, or is empty.
-func unrunnableReason(cfg Config, pkg *v1alpha1.ChallengePackage, platform *v1alpha1.PlatformConfig) string {
+// unrunnableReason explains why this cluster cannot run a package: what the
+// operator cannot provision yet, then what the platform policy refuses (D41).
+// Both are evaluated again whenever the PlatformConfig changes.
+func unrunnableReason(cfg Config, pkg *v1alpha1.ChallengePackage, perms *v1alpha1.RequiredPermissions, platform *v1alpha1.PlatformConfig) string {
 	var reasons []string
 	for _, m := range pkg.Spec.Machines {
 		switch {
@@ -172,23 +180,16 @@ func unrunnableReason(cfg Config, pkg *v1alpha1.ChallengePackage, platform *v1al
 			reasons = append(reasons, fmt.Sprintf("machine %s: the vm runtime needs KubeVirt, which is not installed", m.Name))
 		case !cfg.Supports(m.Runtime):
 			reasons = append(reasons, fmt.Sprintf("machine %s: the %s runtime is not supported yet", m.Name, m.Runtime))
-		case len(platform.Spec.AllowedRuntimes) > 0 && !slices.Contains(platform.Spec.AllowedRuntimes, m.Runtime):
-			reasons = append(reasons, fmt.Sprintf("machine %s: the %s runtime is not allowed by the platform", m.Name, m.Runtime))
 		}
 	}
-	egress := pkg.Spec.Permissions.Egress
-	allowed := platform.Spec.AllowedEgress
-	if allowed == "" {
-		allowed = v1alpha1.EgressNone
-	}
-	switch {
-	case egress == v1alpha1.EgressAllowlist:
+	if perms.Egress == v1alpha1.EgressAllowlist {
 		reasons = append(reasons, "egress allowlists need FQDN network policies, not supported yet")
-	case egress == v1alpha1.EgressInternet && allowed != v1alpha1.EgressInternet:
-		reasons = append(reasons, "internet egress is not allowed by the platform")
 	}
 	if len(pkg.Spec.ExtraManifests) > 0 {
 		reasons = append(reasons, "extraManifests are not supported yet")
+	}
+	for _, v := range challenge.PolicyViolations(perms, platform.Spec) {
+		reasons = append(reasons, "refused by the platform policy: "+v)
 	}
 	return strings.Join(reasons, "; ")
 }

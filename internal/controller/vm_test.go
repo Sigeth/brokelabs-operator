@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/Sigeth/opslab-core-go/api/v1alpha1"
+	"github.com/Sigeth/opslab-core-go/pkg/challenge"
 	"github.com/Sigeth/opslab-core-go/pkg/checkerio"
 	"github.com/Sigeth/opslab-core-go/pkg/sshexec"
 )
@@ -127,7 +128,7 @@ func TestVMInstanceResources(t *testing.T) {
 	if ref := vmi.Spec.Volumes[1].CloudInitNoCloud.UserDataSecretRef.Name; ref != cloudInitSecretName("box") {
 		t.Fatalf("cloud-init secret = %s", ref)
 	}
-	if lim := vmi.Spec.Domain.Resources.Limits[corev1.ResourceCPU]; lim.Cmp(defaultMachineCPU) != 0 {
+	if lim := vmi.Spec.Domain.Resources.Limits[corev1.ResourceCPU]; lim.Cmp(challenge.DefaultMachineCPU) != 0 {
 		t.Fatalf("limits = %v: without them the LimitRange default would throttle the VM", vmi.Spec.Domain.Resources.Limits)
 	}
 	if err := c.Get(context.Background(), types.NamespacedName{Namespace: ns, Name: "box"}, &corev1.Pod{}); err == nil {
@@ -169,7 +170,7 @@ func TestVMInstanceResources(t *testing.T) {
 	// The quota covers the launcher overhead; the operator may SSH in.
 	quota := get(t, c, types.NamespacedName{Namespace: ns, Name: "opslab-quota"}, &corev1.ResourceQuota{})
 	want := checkerMemory.DeepCopy()
-	want.Add(defaultMachineMemory)
+	want.Add(challenge.DefaultMachineMemory)
 	want.Add(vmOverheadMemory)
 	if got := quota.Spec.Hard[corev1.ResourceLimitsMemory]; got.Cmp(want) != 0 {
 		t.Fatalf("memory quota = %s, want %s", got.String(), want.String())

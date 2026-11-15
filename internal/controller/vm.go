@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/Sigeth/opslab-core-go/api/v1alpha1"
+	"github.com/Sigeth/opslab-core-go/pkg/challenge"
 	"github.com/Sigeth/opslab-core-go/pkg/project"
 	"github.com/Sigeth/opslab-core-go/pkg/sshexec"
 )
@@ -188,7 +189,7 @@ func cloudInitSecret(meta metav1.ObjectMeta, m v1alpha1.Machine, a *sshAccess) (
 // machine Service and network policy apply to it as to pod machines.
 func machineVMI(meta metav1.ObjectMeta, m v1alpha1.Machine) *kubevirtv1.VirtualMachineInstance {
 	meta.Labels = withLabels(withLabels(meta.Labels, LabelMachine, m.Name), LabelRole, RoleMachine)
-	cpu, memory := machineResources(m)
+	cpu, memory := challenge.MachineResources(m)
 	resources := corev1.ResourceList{corev1.ResourceCPU: cpu, corev1.ResourceMemory: memory}
 	virtio := kubevirtv1.DiskDevice{Disk: &kubevirtv1.DiskTarget{Bus: kubevirtv1.DiskBusVirtio}}
 	return &kubevirtv1.VirtualMachineInstance{

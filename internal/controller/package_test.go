@@ -11,6 +11,7 @@ import (
 	"github.com/sigstore/sigstore-go/pkg/sign"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"oras.land/oras-go/v2/content/memory"
@@ -275,5 +276,66 @@ func TestChallengeFromOCIRetriesTrustedRootFailures(t *testing.T) {
 	cond := readyCondition(t, get(t, c, types.NamespacedName{Name: "hello"}, &v1alpha1.Challenge{}))
 	if cond.Reason != "FetchFailed" || !strings.Contains(cond.Message, "tuf unreachable") || res.RequeueAfter != fetchRetry {
 		t.Fatalf("condition = %+v, requeue = %v", cond, res.RequeueAfter)
+	}
+}
+
+func TestChallengePermissionsAndPolicy(t *testing.T) {
+	ch, cm := inlineChallenge(t, testManifest)
+	cpu := resource.MustParse("100m")
+	platform := &v1alpha1.PlatformConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: v1alpha1.PlatformConfigName},
+		Spec:       v1alpha1.PlatformConfigSpec{MaxInstanceResources: &v1alpha1.InstanceResources{CPU: &cpu}},
+	}
+	c := newClient(t, ch, cm, platform)
+	r := &ChallengeReconciler{Client: c, Config: testConfig}
+	key := types.NamespacedName{Name: "hello"}
+	doReconcile(t, r, key)
+	got := get(t, c, key, &v1alpha1.Challenge{})
+	perms := got.Status.Permissions
+	if perms == nil || perms.CPU.String() != "250m" || len(perms.Runtimes) != 1 || perms.Egress != v1alpha1.EgressNone {
+		t.Fatalf("permissions = %+v", perms)
+	}
+	if got.Status.Runnable || !strings.Contains(got.Status.UnrunnableReason, "refused by the platform policy: an instance requests 250m CPU") {
+		t.Fatalf("runnable = %v, reason = %q", got.Status.Runnable, got.Status.UnrunnableReason)
+	}
+
+	// Loosening the policy makes it runnable, without reinstalling.
+	cpu = resource.MustParse("1")
+	platform = get(t, c, types.NamespacedName{Name: v1alpha1.PlatformConfigName}, &v1alpha1.PlatformConfig{})
+	platform.Spec.MaxInstanceResources.CPU = &cpu
+	if err := c.Update(context.Background(), platform); err != nil {
+		t.Fatal(err)
+	}
+	doReconcile(t, r, key)
+	if got = get(t, c, key, &v1alpha1.Challenge{}); !got.Status.Runnable {
+		t.Fatalf("reason = %q", got.Status.UnrunnableReason)
+	}
+}
+
+func TestChallengeFromCatalogRefusesOtherPermissions(t *testing.T) {
+	const ref = "registry.example/hello:0.1.0"
+	kp, pub := newKey(t)
+	reg := &fakeRegistry{}
+	reg.publish(t, ref, strings.Replace(testManifest, "debian:13-slim", pinnedImage, 1), helloFiles)
+	reg.sign(t, ref, kp)
+	indexes := publishIndex(t, reg, ref, kp)
+	// The catalog lists less than the package needs.
+	indexes.index.Index.Packages[0].Versions[0].Permissions.CPU = resource.MustParse("1m")
+	cs := catalogSource(pub)
+	c := newClient(t, cs)
+	doReconcile(t, &CatalogSourceReconciler{Client: c, Registry: indexes}, types.NamespacedName{Name: "official"})
+	ch := &v1alpha1.Challenge{
+		ObjectMeta: metav1.ObjectMeta{Name: "hello", Generation: 1},
+		Spec: v1alpha1.ChallengeSpec{Source: v1alpha1.ChallengeSource{
+			Catalog: &v1alpha1.CatalogPackageRef{Source: "official", Name: "hello", Version: "0.1.0"},
+		}},
+	}
+	if err := c.Create(context.Background(), ch); err != nil {
+		t.Fatal(err)
+	}
+	doReconcile(t, &ChallengeReconciler{Client: c, Config: testConfig, Registry: reg}, types.NamespacedName{Name: "hello"})
+	cond := readyCondition(t, get(t, c, types.NamespacedName{Name: "hello"}, &v1alpha1.Challenge{}))
+	if cond.Status != metav1.ConditionFalse || !strings.Contains(cond.Message, "other permissions than its catalog lists") {
+		t.Fatalf("condition = %+v", cond)
 	}
 }

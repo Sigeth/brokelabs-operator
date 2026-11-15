@@ -22,10 +22,8 @@ import (
 
 // Default resources of machines that declare none, and of checkers.
 var (
-	defaultMachineCPU    = resource.MustParse("250m")
-	defaultMachineMemory = resource.MustParse("256Mi")
-	checkerCPU           = resource.MustParse("100m")
-	checkerMemory        = resource.MustParse("128Mi")
+	checkerCPU    = resource.MustParse("100m")
+	checkerMemory = resource.MustParse("128Mi")
 )
 
 // instanceResources builds every object of an instance namespace except the
@@ -107,19 +105,12 @@ func instanceNamespace(inst *v1alpha1.ChallengeInstance) *corev1.Namespace {
 	return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: InstanceNamespace(inst.Name), Labels: labels}}
 }
 
-func machineResources(m v1alpha1.Machine) (cpu, memory resource.Quantity) {
-	if m.Resources != nil {
-		return m.Resources.CPU, m.Resources.Memory
-	}
-	return defaultMachineCPU, defaultMachineMemory
-}
-
 // quota caps the namespace at the machines (with the launcher overhead of
 // VMs) plus one running checker.
 func quota(pkg *v1alpha1.ChallengePackage) corev1.ResourceQuotaSpec {
 	cpu, memory := checkerCPU.DeepCopy(), checkerMemory.DeepCopy()
 	for _, m := range pkg.Spec.Machines {
-		c, mem := machineResources(m)
+		c, mem := challenge.MachineResources(m)
 		cpu.Add(c)
 		memory.Add(mem)
 		if m.Runtime == v1alpha1.RuntimeVM {
@@ -224,7 +215,7 @@ func machineService(meta metav1.ObjectMeta, m v1alpha1.Machine) *corev1.Service 
 // without a command; images with a service entrypoint run it.
 func machinePod(meta metav1.ObjectMeta, m v1alpha1.Machine) *corev1.Pod {
 	meta.Labels = withLabels(withLabels(meta.Labels, LabelMachine, m.Name), LabelRole, RoleMachine)
-	cpu, memory := machineResources(m)
+	cpu, memory := challenge.MachineResources(m)
 	uid := machineUID
 	return &corev1.Pod{
 		ObjectMeta: meta,
