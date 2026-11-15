@@ -3,8 +3,9 @@ module github.com/Sigeth/opslab-operator
 go 1.27.0
 
 require (
-	github.com/Sigeth/opslab-core-go v0.7.0
+	github.com/Sigeth/opslab-core-go v0.8.0
 	github.com/opencontainers/go-digest v1.0.0
+	github.com/opencontainers/image-spec v1.1.1
 	github.com/sigstore/sigstore-go v1.4.0
 	k8s.io/api v0.37.2
 	k8s.io/apimachinery v0.37.2
@@ -79,7 +80,6 @@ require (
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/oklog/ulid/v2 v2.1.2 // indirect
-	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/openshift/custom-resource-status v1.1.2 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
