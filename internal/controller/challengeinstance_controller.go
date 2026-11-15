@@ -75,8 +75,17 @@ func (r *ChallengeInstanceReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	if !inst.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, r.finalize(ctx, &inst)
 	}
-	if !controllerutil.ContainsFinalizer(&inst, Finalizer) {
-		controllerutil.AddFinalizer(&inst, Finalizer)
+	// An instance belongs to its challenge: removing the challenge removes
+	// the instance (the finalizer still tears its namespace down).
+	changed := controllerutil.AddFinalizer(&inst, Finalizer)
+	var ch v1alpha1.Challenge
+	switch err := r.Get(ctx, types.NamespacedName{Name: inst.Spec.Challenge}, &ch); {
+	case err == nil:
+		changed = setOwner(&inst, "Challenge", &ch) || changed
+	case !apierrors.IsNotFound(err):
+		return ctrl.Result{}, err
+	}
+	if changed {
 		return ctrl.Result{}, r.Update(ctx, &inst)
 	}
 

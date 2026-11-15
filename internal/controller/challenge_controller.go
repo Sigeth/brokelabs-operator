@@ -41,7 +41,7 @@ type ChallengeReconciler struct {
 // after a registry failure.
 const fetchRetry = time.Minute
 
-// +kubebuilder:rbac:groups=opslab.io,resources=challenges,verbs=get;list;watch
+// +kubebuilder:rbac:groups=opslab.io,resources=challenges,verbs=get;list;watch;update
 // +kubebuilder:rbac:groups=opslab.io,resources=challenges/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=opslab.io,resources=platformconfigs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=opslab.io,resources=catalogsources,verbs=get;list;watch
@@ -52,6 +52,26 @@ func (r *ChallengeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	var ch v1alpha1.Challenge
 	if err := r.Get(ctx, req.NamespacedName, &ch); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	// A catalog challenge belongs to its source: removing the source removes
+	// the challenge, and with it its instances.
+	var source client.Object
+	if src := ch.Spec.Source.Catalog; src != nil {
+		var cs v1alpha1.CatalogSource
+		switch err := r.Get(ctx, types.NamespacedName{Name: src.Source}, &cs); {
+		case err == nil:
+			source = &cs
+		case !apierrors.IsNotFound(err):
+			return ctrl.Result{}, err
+		}
+	}
+	if setOwner(&ch, "CatalogSource", source) {
+		if err := r.Update(ctx, &ch); err != nil {
+			if apierrors.IsConflict(err) {
+				return ctrl.Result{Requeue: true}, nil
+			}
+			return ctrl.Result{}, err
+		}
 	}
 	platform, err := getPlatformConfig(ctx, r.Client)
 	if err != nil {

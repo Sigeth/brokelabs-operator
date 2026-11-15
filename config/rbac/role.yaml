@@ -86,7 +86,6 @@ rules:
   - opslab.io
   resources:
   - catalogsources
-  - challenges
   - checkruns
   - platformconfigs
   verbs:
@@ -121,6 +120,15 @@ rules:
   - challengeinstances/finalizers
   verbs:
   - update
+- apiGroups:
+  - opslab.io
+  resources:
+  - challenges
+  verbs:
+  - get
+  - list
+  - update
+  - watch
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
