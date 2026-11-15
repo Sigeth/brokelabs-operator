@@ -28,6 +28,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"oras.land/oras-go/v2/registry/remote/auth"
+
 	"github.com/Sigeth/opslab-core-go/api/v1alpha1"
 	"github.com/Sigeth/opslab-core-go/pkg/kubeexec"
 	"github.com/Sigeth/opslab-core-go/pkg/ocipkg"
@@ -114,6 +116,17 @@ func main() {
 		PlainHTTP: func(host string) bool { return host != "" && slices.Contains(plainHTTPRegistries, host) },
 	}}
 	trustedRootLoader := controller.SigstoreTrustedRoot(trustedRoot)
+	// The mirror is reached in the cluster over plain HTTP, with push
+	// credentials; pulls are pinned by digest, so nothing it serves can be
+	// swapped.
+	mirrorUser, mirrorPassword := os.Getenv("OPSLAB_MIRROR_USERNAME"), os.Getenv("OPSLAB_MIRROR_PASSWORD")
+	copier := controller.RemoteCopier{Upstream: registry.Remote, Mirror: ocipkg.Remote{
+		PlainHTTP: func(string) bool { return true },
+		Credential: func(context.Context, string) (auth.Credential, error) {
+			return auth.Credential{Username: mirrorUser, Password: mirrorPassword}, nil
+		},
+	}}
+	must((&controller.MirrorReconciler{Client: mgr.GetClient(), Copier: copier}).SetupWithManager(mgr), "setting up the mirror controller")
 	must((&controller.CatalogSourceReconciler{Client: mgr.GetClient(), Registry: registry, TrustedRoot: trustedRootLoader}).
 		SetupWithManager(mgr), "setting up CatalogSource controller")
 	must((&controller.ChallengeReconciler{Client: mgr.GetClient(), Config: cfg, Registry: registry,

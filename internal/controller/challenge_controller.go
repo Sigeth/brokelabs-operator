@@ -90,7 +90,8 @@ func (r *ChallengeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	inst, resolveErr := r.resolve(ctx, &ch)
 	if resolveErr != nil {
 		status.Package, status.Digest, status.Signer, status.FilesConfigMap, status.Runnable = nil, "", "", "", false
-		status.Permissions = nil
+		status.Permissions, status.Mirrored = nil, false
+		meta.RemoveStatusCondition(&status.Conditions, ConditionMirrored)
 		status.UnrunnableReason = ""
 		reason := "Invalid"
 		if errors.As(resolveErr, new(fetchError)) {
@@ -101,7 +102,11 @@ func (r *ChallengeReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		pkg := inst.pkg
 		status.Package, status.Digest, status.Signer, status.FilesConfigMap = pkg, inst.digest, inst.signer, inst.filesConfigMap
 		status.Permissions = inst.perms
-		status.Mirrored = false // the registry mirror comes later in M3 (D39)
+		if inst.digest != ch.Status.Digest {
+			// Another version: the mirror controller copies it again.
+			status.Mirrored = false
+			meta.RemoveStatusCondition(&status.Conditions, ConditionMirrored)
+		}
 		status.UnrunnableReason = unrunnableReason(r.Config, pkg, inst.perms, platform)
 		status.Runnable = status.UnrunnableReason == ""
 		setCondition(&status.Conditions, ch.Generation, metav1.ConditionTrue, "Installed",
