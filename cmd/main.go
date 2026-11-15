@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -40,15 +41,16 @@ import (
 
 func main() {
 	var (
-		metricsAddr  string
-		probeAddr    string
-		leaderElect  bool
-		gateway      string
-		operatorPods string
-		gatewayPods  string
-		plainHTTP    string
-		trustedRoot  string
-		cfg          controller.Config
+		metricsAddr       string
+		probeAddr         string
+		leaderElect       bool
+		gateway           string
+		operatorPods      string
+		gatewayPods       string
+		plainHTTP         string
+		trustedRoot       string
+		mirrorCredentials string
+		cfg               controller.Config
 	)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "Address of the metrics endpoint; 0 disables it.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "Address of the health and readiness probes.")
@@ -62,6 +64,7 @@ func main() {
 	flag.StringVar(&gatewayPods, "gateway-pod-labels", "app.kubernetes.io/name=gateway", "Labels of the gateway's pods (k=v,...), allowed to reach vm machines over SSH.")
 	flag.StringVar(&plainHTTP, "plain-http-registries", "", "Registries reached over plain HTTP (host:port,...), for local test registries only.")
 	flag.StringVar(&trustedRoot, "sigstore-trusted-root", "", "Sigstore trusted root (JSON) verifying keyless signatures, for air-gapped installs. Default: fetched from the Sigstore public-good TUF repository when first needed.")
+	flag.StringVar(&mirrorCredentials, "mirror-credentials", "", "Directory with the push credentials of the registry mirror (files \"username\" and \"password\"), read at every copy.")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
@@ -119,11 +122,21 @@ func main() {
 	// The mirror is reached in the cluster over plain HTTP, with push
 	// credentials; pulls are pinned by digest, so nothing it serves can be
 	// swapped.
-	mirrorUser, mirrorPassword := os.Getenv("OPSLAB_MIRROR_USERNAME"), os.Getenv("OPSLAB_MIRROR_PASSWORD")
 	copier := controller.RemoteCopier{Upstream: registry.Remote, Mirror: ocipkg.Remote{
 		PlainHTTP: func(string) bool { return true },
 		Credential: func(context.Context, string) (auth.Credential, error) {
-			return auth.Credential{Username: mirrorUser, Password: mirrorPassword}, nil
+			if mirrorCredentials == "" {
+				return auth.EmptyCredential, nil
+			}
+			user, err := os.ReadFile(filepath.Join(mirrorCredentials, "username"))
+			if err != nil {
+				return auth.EmptyCredential, err
+			}
+			password, err := os.ReadFile(filepath.Join(mirrorCredentials, "password"))
+			if err != nil {
+				return auth.EmptyCredential, err
+			}
+			return auth.Credential{Username: strings.TrimSpace(string(user)), Password: strings.TrimSpace(string(password))}, nil
 		},
 	}}
 	must((&controller.MirrorReconciler{Client: mgr.GetClient(), Copier: copier}).SetupWithManager(mgr), "setting up the mirror controller")
