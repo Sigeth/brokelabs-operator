@@ -22,10 +22,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/Sigeth/opslab-core-go/api/v1alpha1"
-	"github.com/Sigeth/opslab-core-go/pkg/catalog"
-	"github.com/Sigeth/opslab-core-go/pkg/ocipkg"
-	"github.com/Sigeth/opslab-core-go/pkg/signing"
+	"github.com/Sigeth/brokelabs-core-go/api/v1alpha1"
+	"github.com/Sigeth/brokelabs-core-go/pkg/catalog"
+	"github.com/Sigeth/brokelabs-core-go/pkg/ocipkg"
+	"github.com/Sigeth/brokelabs-core-go/pkg/signing"
 )
 
 // ConditionMirrored reports whether a challenge is in the registry mirror.

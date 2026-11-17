@@ -1,4 +1,4 @@
-// Package controller contains the opslab reconcilers.
+// Package controller contains the BrokeLabs reconcilers.
 package controller
 
 import (
@@ -23,9 +23,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/Sigeth/opslab-core-go/api/v1alpha1"
-	"github.com/Sigeth/opslab-core-go/pkg/kubeexec"
-	"github.com/Sigeth/opslab-core-go/pkg/sshexec"
+	"github.com/Sigeth/brokelabs-core-go/api/v1alpha1"
+	"github.com/Sigeth/brokelabs-core-go/pkg/kubeexec"
+	"github.com/Sigeth/brokelabs-core-go/pkg/sshexec"
 )
 
 // ChallengeInstanceReconciler drives a ChallengeInstance through its
@@ -52,10 +52,10 @@ type ChallengeInstanceReconciler struct {
 	Now func() time.Time
 }
 
-// +kubebuilder:rbac:groups=opslab.io,resources=challengeinstances,verbs=get;list;watch;update;patch;delete
-// +kubebuilder:rbac:groups=opslab.io,resources=challengeinstances/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=opslab.io,resources=challengeinstances/finalizers,verbs=update
-// +kubebuilder:rbac:groups=opslab.io,resources=challenges,verbs=get;list;watch
+// +kubebuilder:rbac:groups=brokelabs.io,resources=challengeinstances,verbs=get;list;watch;update;patch;delete
+// +kubebuilder:rbac:groups=brokelabs.io,resources=challengeinstances/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=brokelabs.io,resources=challengeinstances/finalizers,verbs=update
+// +kubebuilder:rbac:groups=brokelabs.io,resources=challenges,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;delete;patch
 // +kubebuilder:rbac:groups="",resources=pods/exec,verbs=create;get

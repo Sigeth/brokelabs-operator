@@ -2,7 +2,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: opslab-operator
+  name: brokelabs-operator
 rules:
 - apiGroups:
   - ""
@@ -67,6 +67,53 @@ rules:
   - list
   - watch
 - apiGroups:
+  - brokelabs.io
+  resources:
+  - catalogsources
+  - checkruns
+  - platformconfigs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - brokelabs.io
+  resources:
+  - catalogsources/status
+  - challengeinstances/status
+  - challenges/status
+  - checkruns/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - brokelabs.io
+  resources:
+  - challengeinstances
+  verbs:
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - brokelabs.io
+  resources:
+  - challengeinstances/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - brokelabs.io
+  resources:
+  - challenges
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
   - kubevirt.io
   resources:
   - virtualmachineinstances
@@ -82,53 +129,6 @@ rules:
   - networkpolicies
   verbs:
   - create
-- apiGroups:
-  - opslab.io
-  resources:
-  - catalogsources
-  - checkruns
-  - platformconfigs
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - opslab.io
-  resources:
-  - catalogsources/status
-  - challengeinstances/status
-  - challenges/status
-  - checkruns/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - opslab.io
-  resources:
-  - challengeinstances
-  verbs:
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - opslab.io
-  resources:
-  - challengeinstances/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - opslab.io
-  resources:
-  - challenges
-  verbs:
-  - get
-  - list
-  - update
-  - watch
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:

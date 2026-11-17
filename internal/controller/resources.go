@@ -14,10 +14,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/Sigeth/opslab-core-go/api/v1alpha1"
-	"github.com/Sigeth/opslab-core-go/pkg/challenge"
-	"github.com/Sigeth/opslab-core-go/pkg/checkerio"
-	"github.com/Sigeth/opslab-core-go/pkg/project"
+	"github.com/Sigeth/brokelabs-core-go/api/v1alpha1"
+	"github.com/Sigeth/brokelabs-core-go/pkg/challenge"
+	"github.com/Sigeth/brokelabs-core-go/pkg/checkerio"
+	"github.com/Sigeth/brokelabs-core-go/pkg/project"
 )
 
 // Default resources of machines that declare none, and of checkers.
@@ -48,18 +48,18 @@ func instanceResources(cfg Config, inst *v1alpha1.ChallengeInstance, pkg *v1alph
 	targets.ObjectMeta = meta(TargetsSecret)
 
 	objs := []client.Object{
-		&corev1.ResourceQuota{ObjectMeta: meta("opslab-quota"), Spec: quota(pkg)},
-		&corev1.LimitRange{ObjectMeta: meta("opslab-limits"), Spec: corev1.LimitRangeSpec{Limits: []corev1.LimitRangeItem{{
+		&corev1.ResourceQuota{ObjectMeta: meta("brokelabs-quota"), Spec: quota(pkg)},
+		&corev1.LimitRange{ObjectMeta: meta("brokelabs-limits"), Spec: corev1.LimitRangeSpec{Limits: []corev1.LimitRangeItem{{
 			Type:           corev1.LimitTypeContainer,
 			Default:        corev1.ResourceList{corev1.ResourceCPU: checkerCPU, corev1.ResourceMemory: checkerMemory},
 			DefaultRequest: corev1.ResourceList{corev1.ResourceCPU: checkerCPU, corev1.ResourceMemory: checkerMemory},
 		}}}},
-		&networkingv1.NetworkPolicy{ObjectMeta: meta("opslab-machines"), Spec: machinesNetworkPolicy(cfg, pkg)},
+		&networkingv1.NetworkPolicy{ObjectMeta: meta("brokelabs-machines"), Spec: machinesNetworkPolicy(cfg, pkg)},
 		pkgFiles,
 		targets,
 		&corev1.ServiceAccount{ObjectMeta: meta(CheckerSA)},
 		roleBinding(meta(CheckerSA), cfg.CheckerExecRole, rbacv1.Subject{Kind: rbacv1.ServiceAccountKind, Name: CheckerSA, Namespace: ns}),
-		roleBinding(meta("opslab-gateway"), cfg.GatewayExecRole, rbacv1.Subject{Kind: rbacv1.ServiceAccountKind, Name: cfg.Gateway.Name, Namespace: cfg.Gateway.Namespace}),
+		roleBinding(meta("brokelabs-gateway"), cfg.GatewayExecRole, rbacv1.Subject{Kind: rbacv1.ServiceAccountKind, Name: cfg.Gateway.Name, Namespace: cfg.Gateway.Namespace}),
 	}
 	if access != nil {
 		secret, err := access.secret(ns)

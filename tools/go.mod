@@ -1,4 +1,4 @@
-module github.com/Sigeth/opslab-operator/tools
+module github.com/Sigeth/brokelabs-operator/tools
 
 go 1.27.0
 

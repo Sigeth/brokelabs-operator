@@ -21,8 +21,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/Sigeth/opslab-core-go/api/v1alpha1"
-	"github.com/Sigeth/opslab-core-go/pkg/challenge"
+	"github.com/Sigeth/brokelabs-core-go/api/v1alpha1"
+	"github.com/Sigeth/brokelabs-core-go/pkg/challenge"
 )
 
 // ChallengeReconciler installs challenges: it resolves and validates the
@@ -41,10 +41,10 @@ type ChallengeReconciler struct {
 // after a registry failure.
 const fetchRetry = time.Minute
 
-// +kubebuilder:rbac:groups=opslab.io,resources=challenges,verbs=get;list;watch;update
-// +kubebuilder:rbac:groups=opslab.io,resources=challenges/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=opslab.io,resources=platformconfigs,verbs=get;list;watch
-// +kubebuilder:rbac:groups=opslab.io,resources=catalogsources,verbs=get;list;watch
+// +kubebuilder:rbac:groups=brokelabs.io,resources=challenges,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=brokelabs.io,resources=challenges/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=brokelabs.io,resources=platformconfigs,verbs=get;list;watch
+// +kubebuilder:rbac:groups=brokelabs.io,resources=catalogsources,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
 
 // Reconcile implements reconcile.Reconciler.

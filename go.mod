@@ -1,9 +1,9 @@
-module github.com/Sigeth/opslab-operator
+module github.com/Sigeth/brokelabs-operator
 
 go 1.27.0
 
 require (
-	github.com/Sigeth/opslab-core-go v0.8.0
+	github.com/Sigeth/brokelabs-core-go v0.9.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/sigstore/sigstore-go v1.4.0
@@ -144,6 +144,6 @@ require (
 // kubevirt.io/api pulls in, through openshift/custom-resource-status and the
 // old Kubernetes libraries it requires, the 2020 monolithic genproto. Its
 // googleapis/api packages then clash with the split module cel-go (core-go)
-// uses: an ambiguous import in workspace builds (go.work, opslab-ci with a
+// uses: an ambiguous import in workspace builds (go.work, brokelabs-ci with a
 // local core-go). A recent genproto no longer contains them.
 replace google.golang.org/genproto => google.golang.org/genproto v0.0.0-20261110000943-09e21b237f2c

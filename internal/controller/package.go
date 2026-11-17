@@ -17,12 +17,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/Sigeth/opslab-core-go/api/v1alpha1"
-	"github.com/Sigeth/opslab-core-go/pkg/catalog"
-	"github.com/Sigeth/opslab-core-go/pkg/challenge"
-	"github.com/Sigeth/opslab-core-go/pkg/ocipkg"
-	"github.com/Sigeth/opslab-core-go/pkg/project"
-	"github.com/Sigeth/opslab-core-go/pkg/signing"
+	"github.com/Sigeth/brokelabs-core-go/api/v1alpha1"
+	"github.com/Sigeth/brokelabs-core-go/pkg/catalog"
+	"github.com/Sigeth/brokelabs-core-go/pkg/challenge"
+	"github.com/Sigeth/brokelabs-core-go/pkg/ocipkg"
+	"github.com/Sigeth/brokelabs-core-go/pkg/project"
+	"github.com/Sigeth/brokelabs-core-go/pkg/signing"
 )
 
 // PackageRegistry reads packages from OCI registries.
@@ -265,7 +265,7 @@ func pinnedTo(ref, digest string) bool {
 // of the system namespace, owned by the Challenge.
 //
 // RBAC: updating ConfigMaps of the system namespace is granted by a Role of
-// the chart (opslab-operator-packages), not by a marker, since it is
+// the chart (brokelabs-operator-packages), not by a marker, since it is
 // namespaced.
 func (r *ChallengeReconciler) writePackageFiles(ctx context.Context, ch *v1alpha1.Challenge, name, digest string, files map[string][]byte) error {
 	data, binaryData, err := challenge.ConfigMapData(files)

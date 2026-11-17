@@ -26,25 +26,25 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/structured-merge-diff/v6/typed"
 
-	"github.com/Sigeth/opslab-core-go/api/v1alpha1"
-	"github.com/Sigeth/opslab-core-go/pkg/challenge"
-	"github.com/Sigeth/opslab-core-go/pkg/kubeexec"
+	"github.com/Sigeth/brokelabs-core-go/api/v1alpha1"
+	"github.com/Sigeth/brokelabs-core-go/pkg/challenge"
+	"github.com/Sigeth/brokelabs-core-go/pkg/kubeexec"
 )
 
 const (
-	systemNS    = "opslab-system"
-	instancesNS = "opslab-instances"
+	systemNS    = "brokelabs-system"
+	instancesNS = "brokelabs-instances"
 )
 
 var testConfig = Config{
 	SystemNamespace: systemNS,
 	CheckerImage:    "checker:test",
-	Gateway:         types.NamespacedName{Namespace: systemNS, Name: "opslab-gateway"},
-	GatewayExecRole: "opslab-gateway-exec",
-	CheckerExecRole: "opslab-checker-exec",
+	Gateway:         types.NamespacedName{Namespace: systemNS, Name: "brokelabs-gateway"},
+	GatewayExecRole: "brokelabs-gateway-exec",
+	CheckerExecRole: "brokelabs-checker-exec",
 }
 
-const testManifest = `apiVersion: opslab.io/v1alpha1
+const testManifest = `apiVersion: brokelabs.io/v1alpha1
 kind: ChallengePackage
 metadata: {name: hello, version: 0.1.0}
 spec:
@@ -256,9 +256,9 @@ func TestInstanceLifecycle(t *testing.T) {
 		t.Fatalf("pod spec = %+v", pod.Spec)
 	}
 	get(t, c, types.NamespacedName{Namespace: ns, Name: "box"}, &corev1.Service{})
-	get(t, c, types.NamespacedName{Namespace: ns, Name: "opslab-machines"}, &networkingv1.NetworkPolicy{})
-	gw := get(t, c, types.NamespacedName{Namespace: ns, Name: "opslab-gateway"}, &rbacv1.RoleBinding{})
-	if gw.Subjects[0].Namespace != systemNS || gw.RoleRef.Name != "opslab-gateway-exec" {
+	get(t, c, types.NamespacedName{Namespace: ns, Name: "brokelabs-machines"}, &networkingv1.NetworkPolicy{})
+	gw := get(t, c, types.NamespacedName{Namespace: ns, Name: "brokelabs-gateway"}, &rbacv1.RoleBinding{})
+	if gw.Subjects[0].Namespace != systemNS || gw.RoleRef.Name != "brokelabs-gateway-exec" {
 		t.Fatalf("gateway binding = %+v", gw)
 	}
 	pkgFiles := get(t, c, types.NamespacedName{Namespace: ns, Name: PackageConfigMap}, &corev1.ConfigMap{})

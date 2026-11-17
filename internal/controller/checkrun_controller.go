@@ -18,8 +18,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/Sigeth/opslab-core-go/api/v1alpha1"
-	"github.com/Sigeth/opslab-core-go/pkg/checkerio"
+	"github.com/Sigeth/brokelabs-core-go/api/v1alpha1"
+	"github.com/Sigeth/brokelabs-core-go/pkg/checkerio"
 )
 
 // PodLogs reads the log of a container.
@@ -41,8 +41,8 @@ type CheckRunReconciler struct {
 	Now       func() time.Time
 }
 
-// +kubebuilder:rbac:groups=opslab.io,resources=checkruns,verbs=get;list;watch
-// +kubebuilder:rbac:groups=opslab.io,resources=checkruns/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=brokelabs.io,resources=checkruns,verbs=get;list;watch
+// +kubebuilder:rbac:groups=brokelabs.io,resources=checkruns/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups="",resources=pods/log,verbs=get
 

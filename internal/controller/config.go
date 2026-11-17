@@ -8,8 +8,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/Sigeth/opslab-core-go/api/v1alpha1"
-	"github.com/Sigeth/opslab-core-go/pkg/project"
+	"github.com/Sigeth/brokelabs-core-go/api/v1alpha1"
+	"github.com/Sigeth/brokelabs-core-go/pkg/project"
 )
 
 // Config is shared by the reconcilers.
@@ -76,13 +76,13 @@ const (
 
 // Fixed names inside an instance namespace.
 const (
-	PackageConfigMap       = "opslab-package"
-	TargetsSecret          = "opslab-checker-targets"
+	PackageConfigMap       = "brokelabs-package"
+	TargetsSecret          = "brokelabs-checker-targets"
 	TargetsKey             = "targets.json"
-	CheckerSA              = "opslab-checker"
-	PackageMountPath       = "/opslab/package"
-	TargetsMountPath       = "/opslab/targets"
-	SSHMountPath           = "/opslab/ssh"
+	CheckerSA              = "brokelabs-checker"
+	PackageMountPath       = "/brokelabs/package"
+	TargetsMountPath       = "/brokelabs/targets"
+	SSHMountPath           = "/brokelabs/ssh"
 	machineUID       int64 = 1000
 )
 

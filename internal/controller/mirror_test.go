@@ -12,8 +12,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"oras.land/oras-go/v2/registry/remote/auth"
 
-	"github.com/Sigeth/opslab-core-go/api/v1alpha1"
-	"github.com/Sigeth/opslab-core-go/pkg/ocipkg"
+	"github.com/Sigeth/brokelabs-core-go/api/v1alpha1"
+	"github.com/Sigeth/brokelabs-core-go/pkg/ocipkg"
 )
 
 type copied struct {
@@ -31,7 +31,7 @@ func (f *fakeCopier) Copy(_ context.Context, mirror, ref string, signatures bool
 	return f.err
 }
 
-const testMirror = "opslab-mirror.opslab-system.svc:5000"
+const testMirror = "brokelabs-mirror.brokelabs-system.svc:5000"
 
 func mirrorSetup(t *testing.T, ch *v1alpha1.Challenge) (*MirrorReconciler, *fakeCopier) {
 	t.Helper()
@@ -158,13 +158,13 @@ func TestMirrorRef(t *testing.T) {
 }
 
 // TestRemoteCopier copies a real image into a test registry:
-// OPSLAB_TEST_MIRROR=127.0.0.1:5057 OPSLAB_TEST_MIRROR_AUTH=user:password OPSLAB_TEST_IMAGE=ghcr.io/...@sha256:...
+// BROKELABS_TEST_MIRROR=127.0.0.1:5057 BROKELABS_TEST_MIRROR_AUTH=user:password BROKELABS_TEST_IMAGE=ghcr.io/...@sha256:...
 func TestRemoteCopier(t *testing.T) {
-	mirror, image := os.Getenv("OPSLAB_TEST_MIRROR"), os.Getenv("OPSLAB_TEST_IMAGE")
+	mirror, image := os.Getenv("BROKELABS_TEST_MIRROR"), os.Getenv("BROKELABS_TEST_IMAGE")
 	if mirror == "" || image == "" {
-		t.Skip("set OPSLAB_TEST_MIRROR and OPSLAB_TEST_IMAGE")
+		t.Skip("set BROKELABS_TEST_MIRROR and BROKELABS_TEST_IMAGE")
 	}
-	user, password, _ := strings.Cut(os.Getenv("OPSLAB_TEST_MIRROR_AUTH"), ":")
+	user, password, _ := strings.Cut(os.Getenv("BROKELABS_TEST_MIRROR_AUTH"), ":")
 	c := RemoteCopier{Mirror: ocipkg.Remote{
 		PlainHTTP: func(string) bool { return true },
 		Credential: func(context.Context, string) (auth.Credential, error) {

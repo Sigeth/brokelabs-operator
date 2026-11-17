@@ -1,4 +1,4 @@
-// Command operator runs the opslab controllers.
+// Command operator runs the BrokeLabs controllers.
 package main
 
 import (
@@ -31,12 +31,12 @@ import (
 
 	"oras.land/oras-go/v2/registry/remote/auth"
 
-	"github.com/Sigeth/opslab-core-go/api/v1alpha1"
-	"github.com/Sigeth/opslab-core-go/pkg/kubeexec"
-	"github.com/Sigeth/opslab-core-go/pkg/ocipkg"
-	"github.com/Sigeth/opslab-core-go/pkg/project"
-	"github.com/Sigeth/opslab-core-go/pkg/sshexec"
-	"github.com/Sigeth/opslab-operator/internal/controller"
+	"github.com/Sigeth/brokelabs-core-go/api/v1alpha1"
+	"github.com/Sigeth/brokelabs-core-go/pkg/kubeexec"
+	"github.com/Sigeth/brokelabs-core-go/pkg/ocipkg"
+	"github.com/Sigeth/brokelabs-core-go/pkg/project"
+	"github.com/Sigeth/brokelabs-core-go/pkg/sshexec"
+	"github.com/Sigeth/brokelabs-operator/internal/controller"
 )
 
 func main() {
@@ -89,7 +89,7 @@ func main() {
 
 	scheme := runtime.NewScheme()
 	must(clientgoscheme.AddToScheme(scheme), "registering Kubernetes types")
-	must(v1alpha1.AddToScheme(scheme), "registering opslab types")
+	must(v1alpha1.AddToScheme(scheme), "registering BrokeLabs types")
 	must(kubevirtv1.AddToScheme(scheme), "registering KubeVirt types")
 
 	restConfig := ctrl.GetConfigOrDie()
@@ -183,7 +183,7 @@ func hasKubeVirt(config *rest.Config) (bool, error) {
 	return false, nil
 }
 
-// cacheOptions keeps only opslab's objects in memory: instance pods and VMs,
+// cacheOptions keeps only BrokeLabs objects in memory: instance pods and VMs,
 // checker jobs, and the ConfigMaps of the operator namespace.
 func cacheOptions(systemNamespace string, kubevirt bool) cache.Options {
 	has := func(key string) labels.Selector {

@@ -6,7 +6,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/Sigeth/opslab-core-go/api/v1alpha1"
+	"github.com/Sigeth/brokelabs-core-go/api/v1alpha1"
 )
 
 // Removal cascades through owner references, handled by the Kubernetes

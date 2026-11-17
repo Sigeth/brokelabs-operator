@@ -1,6 +1,6 @@
 # Contract library, tested at its newest tag by contract-latest.
-CORE_GO := github.com/Sigeth/opslab-core-go
-IMG ?= ghcr.io/sigeth/opslab-operator:dev
+CORE_GO := github.com/Sigeth/brokelabs-core-go
+IMG ?= ghcr.io/sigeth/brokelabs-operator:dev
 # podman or docker, whichever is installed.
 CONTAINER_TOOL ?= $(shell command -v podman >/dev/null 2>&1 && echo podman || echo docker)
 # Tools are built outside any go.work (-modfile is not allowed in workspace mode).
@@ -29,7 +29,7 @@ lint:
 
 ## manifests: RBAC role from the +kubebuilder:rbac markers
 manifests: $(CONTROLLER_GEN)
-	$(CONTROLLER_GEN) rbac:roleName=opslab-operator paths=./internal/... output:rbac:artifacts:config=config/rbac
+	$(CONTROLLER_GEN) rbac:roleName=brokelabs-operator paths=./internal/... output:rbac:artifacts:config=config/rbac
 
 verify-generated: manifests
 	@changes=$$(git status --porcelain -- config); if [ -n "$$changes" ]; then echo "RBAC is out of date, run 'make manifests':"; echo "$$changes"; exit 1; fi
@@ -37,7 +37,7 @@ verify-generated: manifests
 image:
 	$(CONTAINER_TOOL) build --platform linux/amd64 -t $(IMG) .
 
-## contract-latest: build and test against the newest opslab-core-go tag (CI),
+## contract-latest: build and test against the newest brokelabs-core-go tag (CI),
 ## on a temporary copy of go.mod so the pinned version is not changed
 contract-latest:
 	@set -e; tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \

@@ -1,6 +1,6 @@
-# opslab-operator
+# brokelabs-operator
 
-Kubernetes operator of opslab (working name). It reconciles the custom resources defined in [opslab-core-go](https://github.com/Sigeth/opslab-core-go): it installs challenges and provisions isolated environments (`ChallengeInstance`). It also runs checkers (`CheckRun`).
+Kubernetes operator of BrokeLabs. It reconciles the custom resources defined in [brokelabs-core-go](https://github.com/Sigeth/brokelabs-core-go): it installs challenges and provisions isolated environments (`ChallengeInstance`). It also runs checkers (`CheckRun`).
 
 > Status: M1. It installs inline challenges (local development), provisions `pod`-tier instances and runs checkers. Registries, signatures and the other runtimes come later.
 
@@ -16,10 +16,10 @@ Kubernetes operator of opslab (working name). It reconciles the custom resources
 
 ## Development
 
-Requirements: Go (version in `go.mod`), make, kubectl, and a cluster (e.g. kind) with the opslab CRDs installed.
+Requirements: Go (version in `go.mod`), make, kubectl, and a cluster (e.g. kind) with the BrokeLabs CRDs installed.
 
 ```sh
-kubectl apply --server-side -f ../core-go/crds/   # CRDs from opslab-core-go
+kubectl apply --server-side -f ../core-go/crds/   # CRDs from brokelabs-core-go
 make manifests lint test build
 make run                                          # against the current kubeconfig context (needs --system-namespace)
 make image                                        # linux/amd64 image (podman or docker)

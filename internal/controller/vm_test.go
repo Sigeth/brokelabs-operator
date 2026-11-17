@@ -17,13 +17,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
-	"github.com/Sigeth/opslab-core-go/api/v1alpha1"
-	"github.com/Sigeth/opslab-core-go/pkg/challenge"
-	"github.com/Sigeth/opslab-core-go/pkg/checkerio"
-	"github.com/Sigeth/opslab-core-go/pkg/sshexec"
+	"github.com/Sigeth/brokelabs-core-go/api/v1alpha1"
+	"github.com/Sigeth/brokelabs-core-go/pkg/challenge"
+	"github.com/Sigeth/brokelabs-core-go/pkg/checkerio"
+	"github.com/Sigeth/brokelabs-core-go/pkg/sshexec"
 )
 
-const vmManifest = `apiVersion: opslab.io/v1alpha1
+const vmManifest = `apiVersion: brokelabs.io/v1alpha1
 kind: ChallengePackage
 metadata: {name: hello, version: 0.1.0}
 spec:
@@ -168,14 +168,14 @@ func TestVMInstanceResources(t *testing.T) {
 	}
 
 	// The quota covers the launcher overhead; the operator may SSH in.
-	quota := get(t, c, types.NamespacedName{Namespace: ns, Name: "opslab-quota"}, &corev1.ResourceQuota{})
+	quota := get(t, c, types.NamespacedName{Namespace: ns, Name: "brokelabs-quota"}, &corev1.ResourceQuota{})
 	want := checkerMemory.DeepCopy()
 	want.Add(challenge.DefaultMachineMemory)
 	want.Add(vmOverheadMemory)
 	if got := quota.Spec.Hard[corev1.ResourceLimitsMemory]; got.Cmp(want) != 0 {
 		t.Fatalf("memory quota = %s, want %s", got.String(), want.String())
 	}
-	policy := get(t, c, types.NamespacedName{Namespace: ns, Name: "opslab-machines"}, &networkingv1.NetworkPolicy{})
+	policy := get(t, c, types.NamespacedName{Namespace: ns, Name: "brokelabs-machines"}, &networkingv1.NetworkPolicy{})
 	sshRule := policy.Spec.Ingress[len(policy.Spec.Ingress)-1]
 	if sshRule.Ports[0].Port.IntVal != v1alpha1.SSHPort || len(sshRule.From) != 2 ||
 		sshRule.From[0].PodSelector.MatchLabels["app.kubernetes.io/name"] != "operator" ||
