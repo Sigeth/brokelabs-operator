@@ -119,7 +119,7 @@ func main() {
 	policies, err := hasAdmissionPolicies(context.Background(), clientset)
 	must(err, "detecting the platform admission policies")
 	if policies {
-		cfg.Runtimes = append(cfg.Runtimes, v1alpha1.RuntimeVCluster)
+		cfg.Runtimes = append(cfg.Runtimes, v1alpha1.RuntimeUserns, v1alpha1.RuntimeVCluster)
 	} else {
 		log.Info("platform admission policies not found: userns and vcluster runtimes disabled",
 			"policies", []string{v1alpha1.UserNamespacesPolicy, v1alpha1.NetworkPoliciesPolicy})

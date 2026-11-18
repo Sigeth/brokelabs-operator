@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -466,4 +467,32 @@ func containsPath(items []corev1.KeyToPath, path string) bool {
 		}
 	}
 	return false
+}
+
+// quotaRefusingClient refuses to create a pod that already exists the way the
+// API server does when the namespace quota is full: quota admission runs
+// before the name check, so the error is Forbidden, not AlreadyExists.
+type quotaRefusingClient struct{ client.Client }
+
+func (c quotaRefusingClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	if _, ok := obj.(*corev1.Pod); ok {
+		if err := c.Get(ctx, client.ObjectKeyFromObject(obj), &corev1.Pod{}); err == nil {
+			return apierrors.NewForbidden(corev1.Resource("pods"), obj.GetName(), errors.New("exceeded quota: brokelabs-quota"))
+		}
+	}
+	return c.Client.Create(ctx, obj, opts...)
+}
+
+func TestRetriedCreationToleratesQuotaRefusals(t *testing.T) {
+	c, key := installed(t)
+	q := quotaRefusingClient{c}
+	r := &ChallengeInstanceReconciler{Client: q, APIReader: q, Config: testConfig, Exec: &fakeExec{}}
+	doReconcile(t, r, key) // finalizer
+	doReconcile(t, r, key) // provisioning: creates everything
+	inst := get(t, c, key, &v1alpha1.ChallengeInstance{})
+	ch := get(t, c, types.NamespacedName{Name: "hello"}, &v1alpha1.Challenge{})
+	// A second creation, as after a lost status update, must not fail.
+	if err := r.create(context.Background(), ch, ch.Status.Package, inst); err != nil {
+		t.Fatalf("retried creation: %v", err)
+	}
 }

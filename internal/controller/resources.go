@@ -251,8 +251,11 @@ func machineService(meta metav1.ObjectMeta, m v1alpha1.Machine) *corev1.Service 
 }
 
 // machinePod runs a pod machine under the restricted Pod Security Standard,
-// as UID/GID 1000. Stdin and a TTY keep shell entrypoints (bash, sh) alive
-// without a command; images with a service entrypoint run it.
+// as UID/GID 1000, or a userns machine as root in a user namespace (D49):
+// baseline Pod Security Standard, default capabilities and privilege
+// escalation (sudo), whatever user the image sets. Stdin and a TTY keep shell
+// entrypoints (bash, sh) alive without a command; images with a service
+// entrypoint run it.
 func machinePod(meta metav1.ObjectMeta, m v1alpha1.Machine) *corev1.Pod {
 	meta.Labels = withLabels(withLabels(meta.Labels, LabelMachine, m.Name), LabelRole, RoleMachine)
 	cpu, memory := challenge.MachineResources(m)
@@ -288,6 +291,16 @@ func machinePod(meta metav1.ObjectMeta, m v1alpha1.Machine) *corev1.Pod {
 				},
 			}},
 		},
+	}
+	if m.Runtime == v1alpha1.RuntimeUserns {
+		root := int64(0)
+		pod.Spec.HostUsers = new(false)
+		pod.Spec.SecurityContext = &corev1.PodSecurityContext{
+			RunAsUser:      &root,
+			RunAsGroup:     &root,
+			SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+		}
+		pod.Spec.Containers[0].SecurityContext = nil
 	}
 	if m.KubeconfigFor != "" {
 		volume, mount, env := kubeconfigVolume(m)

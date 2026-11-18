@@ -243,10 +243,29 @@ func (r *ChallengeInstanceReconciler) create(ctx context.Context, ch *v1alpha1.C
 	}
 	for _, obj := range append([]client.Object{instanceNamespace(inst, pkg)}, objs...) {
 		if err := r.Create(ctx, obj); err != nil && !apierrors.IsAlreadyExists(err) {
+			// A retried creation (a status update lost a conflict) can be
+			// refused before the name check, e.g. by the namespace quota
+			// that the first pod already fills: the object is there.
+			if exists, getErr := r.exists(ctx, obj); getErr == nil && exists {
+				continue
+			}
 			return fmt.Errorf("creating %T %s: %w", obj, obj.GetName(), err)
 		}
 	}
 	return nil
+}
+
+// exists reports whether an object of the same kind and name exists.
+func (r *ChallengeInstanceReconciler) exists(ctx context.Context, obj client.Object) (bool, error) {
+	existing, ok := obj.DeepCopyObject().(client.Object)
+	if !ok {
+		return false, nil
+	}
+	err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(obj), existing)
+	if apierrors.IsNotFound(err) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // fatalError makes the instance fail instead of being retried.

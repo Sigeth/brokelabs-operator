@@ -36,3 +36,21 @@ func TestInstanceNamespacePodSecurity(t *testing.T) {
 		}
 	}
 }
+
+func TestUsernsMachinePod(t *testing.T) {
+	pod := machinePod(metav1.ObjectMeta{Name: "box"}, v1alpha1.Machine{Name: "box", Runtime: v1alpha1.RuntimeUserns, Image: "box:1"})
+	sc := pod.Spec.SecurityContext
+	if pod.Spec.HostUsers == nil || *pod.Spec.HostUsers {
+		t.Error("a userns machine must not share the host's users")
+	}
+	if sc.RunAsUser == nil || *sc.RunAsUser != 0 || sc.RunAsNonRoot != nil {
+		t.Errorf("security context = %+v, want root", sc)
+	}
+	if pod.Spec.Containers[0].SecurityContext != nil {
+		t.Errorf("container security context = %+v: default capabilities and sudo need none", pod.Spec.Containers[0].SecurityContext)
+	}
+	// pod machines keep the restricted settings.
+	if p := machinePod(metav1.ObjectMeta{Name: "box"}, v1alpha1.Machine{Name: "box", Runtime: v1alpha1.RuntimePod, Image: "box:1"}); p.Spec.HostUsers != nil || *p.Spec.SecurityContext.RunAsUser != machineUID {
+		t.Error("pod machines changed")
+	}
+}
