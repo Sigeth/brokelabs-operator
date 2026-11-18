@@ -27,9 +27,10 @@ lint:
 	go vet ./...
 	@unformatted=$$(gofmt -l cmd internal); if [ -n "$$unformatted" ]; then echo "$$unformatted"; exit 1; fi
 
-## manifests: RBAC role from the +kubebuilder:rbac markers
+## manifests: RBAC role from the +kubebuilder:rbac markers, vcluster role from the embedded chart
 manifests: $(CONTROLLER_GEN)
 	$(CONTROLLER_GEN) rbac:roleName=brokelabs-operator paths=./internal/... output:rbac:artifacts:config=config/rbac
+	go run ./cmd/vcluster-role > config/rbac/vcluster-role.yaml
 
 verify-generated: manifests
 	@changes=$$(git status --porcelain -- config); if [ -n "$$changes" ]; then echo "RBAC is out of date, run 'make manifests':"; echo "$$changes"; exit 1; fi

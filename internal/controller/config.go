@@ -26,6 +26,11 @@ type Config struct {
 	// instance namespace to the gateway and the checker.
 	GatewayExecRole string
 	CheckerExecRole string
+	// VClusterRole is the ClusterRole bound to the control plane of vcluster
+	// machines in their instance namespace.
+	VClusterRole string
+	// HostMinor is the Kubernetes minor version of the cluster.
+	HostMinor int
 	// OperatorPods selects the operator's pods in SystemNamespace: the
 	// network policy of instances with vm machines lets them in over SSH.
 	OperatorPods map[string]string
@@ -39,7 +44,7 @@ type Config struct {
 }
 
 // The operator reads the user namespace admission policies (D50) at startup.
-// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingadmissionpolicies;mutatingadmissionpolicybindings;validatingadmissionpolicies;validatingadmissionpolicybindings,verbs=get,resourceNames=brokelabs-user-namespaces
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingadmissionpolicies;mutatingadmissionpolicybindings;validatingadmissionpolicies;validatingadmissionpolicybindings,verbs=get,resourceNames=brokelabs-user-namespaces;brokelabs-instance-network-policies
 
 // Supports reports whether instances can use a runtime.
 func (c Config) Supports(r v1alpha1.Runtime) bool {

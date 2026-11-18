@@ -18,6 +18,7 @@ import (
 	"github.com/Sigeth/brokelabs-core-go/pkg/challenge"
 	"github.com/Sigeth/brokelabs-core-go/pkg/checkerio"
 	"github.com/Sigeth/brokelabs-core-go/pkg/project"
+	"github.com/Sigeth/brokelabs-operator/internal/vcluster"
 )
 
 // Default resources of machines that declare none, and of checkers.
@@ -70,11 +71,17 @@ func instanceResources(cfg Config, inst *v1alpha1.ChallengeInstance, pkg *v1alph
 		objs = append(objs, secret)
 	}
 	for _, m := range pkg.Spec.Machines {
-		objs = append(objs, machineService(meta(m.Name), m))
-		if m.Runtime != v1alpha1.RuntimeVM {
-			objs = append(objs, machinePod(meta(m.Name), m))
+		switch {
+		case m.Runtime == v1alpha1.RuntimeVCluster:
+			continue // rendered by vclusterResources
+		case m.Runtime != v1alpha1.RuntimeVM:
+			objs = append(objs, machineService(meta(m.Name), m))
+			if m.KubeconfigFor == "" { // the others wait for their kubeconfig
+				objs = append(objs, machinePod(meta(m.Name), m))
+			}
 			continue
 		}
+		objs = append(objs, machineService(meta(m.Name), m))
 		if access == nil {
 			return nil, fmt.Errorf("machine %s: no SSH material for a vm machine", m.Name)
 		}
@@ -122,6 +129,14 @@ func needsUserNamespaces(pkg *v1alpha1.ChallengePackage) bool {
 	return false
 }
 
+// podQuota counts the machines, a checker and a spare, plus the pods of
+// virtual clusters.
+func podQuota(pkg *v1alpha1.ChallengePackage) resource.Quantity {
+	pods := vclusterQuota(pkg)
+	pods.Add(*resource.NewQuantity(int64(len(pkg.Spec.Machines)+2), resource.DecimalSI))
+	return pods
+}
+
 // quota caps the namespace at the machines (with the launcher overhead of
 // VMs) plus one running checker.
 func quota(pkg *v1alpha1.ChallengePackage) corev1.ResourceQuotaSpec {
@@ -136,7 +151,7 @@ func quota(pkg *v1alpha1.ChallengePackage) corev1.ResourceQuotaSpec {
 		}
 	}
 	return corev1.ResourceQuotaSpec{Hard: corev1.ResourceList{
-		corev1.ResourcePods:                   *resource.NewQuantity(int64(len(pkg.Spec.Machines)+2), resource.DecimalSI),
+		corev1.ResourcePods:                   podQuota(pkg),
 		corev1.ResourceRequestsCPU:            cpu,
 		corev1.ResourceLimitsCPU:              cpu,
 		corev1.ResourceRequestsMemory:         memory,
@@ -173,6 +188,14 @@ func machinesNetworkPolicy(cfg Config, pkg *v1alpha1.ChallengePackage) networkin
 				Ports: []networkingv1.NetworkPolicyPort{{Protocol: &udp, Port: &dns}, {Protocol: &tcp, Port: &dns}},
 			},
 		},
+	}
+	if hasVCluster(pkg) {
+		// Machines reach the virtual API servers (kubeconfigFor).
+		port := intstr.FromInt32(vcluster.Port)
+		spec.Egress = append(spec.Egress, networkingv1.NetworkPolicyEgressRule{
+			To:    []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{LabelRole: RoleVCluster}}}},
+			Ports: []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: &port}},
+		})
 	}
 	if hasVM(pkg) {
 		var peers []networkingv1.NetworkPolicyPeer
@@ -234,7 +257,7 @@ func machinePod(meta metav1.ObjectMeta, m v1alpha1.Machine) *corev1.Pod {
 	meta.Labels = withLabels(withLabels(meta.Labels, LabelMachine, m.Name), LabelRole, RoleMachine)
 	cpu, memory := challenge.MachineResources(m)
 	uid := machineUID
-	return &corev1.Pod{
+	pod := &corev1.Pod{
 		ObjectMeta: meta,
 		Spec: corev1.PodSpec{
 			Hostname:                      m.Name,
@@ -266,6 +289,14 @@ func machinePod(meta metav1.ObjectMeta, m v1alpha1.Machine) *corev1.Pod {
 			}},
 		},
 	}
+	if m.KubeconfigFor != "" {
+		volume, mount, env := kubeconfigVolume(m)
+		pod.Spec.Volumes = append(pod.Spec.Volumes, volume)
+		c := &pod.Spec.Containers[0]
+		c.VolumeMounts = append(c.VolumeMounts, mount)
+		c.Env = append(c.Env, env)
+	}
+	return pod
 }
 
 // packageConfigMap holds the files the checker reads: the defaulted manifest
@@ -304,6 +335,14 @@ func targetsSecret(pkg *v1alpha1.ChallengePackage, ns string) (*corev1.Secret, e
 			}
 			continue
 		}
+		if m.Runtime == v1alpha1.RuntimeVCluster {
+			targets.Machines[m.Name] = checkerio.Target{
+				Runtime:        m.Runtime,
+				Host:           vclusterAddress(m.Name, ns),
+				KubeconfigFile: KubeconfigMountPath + "/" + m.Name,
+			}
+			continue
+		}
 		targets.Machines[m.Name] = checkerio.Target{
 			Runtime:   m.Runtime,
 			Host:      machineAddress(m.Name, ns),
@@ -323,7 +362,7 @@ func machineAddress(machine, ns string) string { return machine + "." + ns + ".s
 
 // checkJob runs the checker for a CheckRun. With vm machines, it mounts the
 // users' SSH keys and the known hosts (not the machines' private host keys).
-func checkJob(name, ns string, run *v1alpha1.CheckRun, image string, pkgFiles *corev1.ConfigMap, vm bool) *batchv1.Job {
+func checkJob(name, ns string, run *v1alpha1.CheckRun, image string, pkgFiles *corev1.ConfigMap, vm bool, vclusters []string) *batchv1.Job {
 	labels := map[string]string{
 		LabelManagedBy:         ManagedBy,
 		LabelCheckRun:          run.Name,
@@ -409,6 +448,12 @@ func checkJob(name, ns string, run *v1alpha1.CheckRun, image string, pkgFiles *c
 		}}})
 		c := &pod.Containers[0]
 		c.VolumeMounts = append(c.VolumeMounts, corev1.VolumeMount{Name: "ssh", MountPath: SSHMountPath, ReadOnly: true})
+	}
+	if len(vclusters) > 0 {
+		pod := &job.Spec.Template.Spec
+		pod.Volumes = append(pod.Volumes, checkerKubeconfigs(vclusters))
+		c := &pod.Containers[0]
+		c.VolumeMounts = append(c.VolumeMounts, corev1.VolumeMount{Name: "kubeconfig", MountPath: KubeconfigMountPath, ReadOnly: true})
 	}
 	return job
 }

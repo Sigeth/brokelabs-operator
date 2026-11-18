@@ -307,7 +307,7 @@ func TestVMSetupFailureFails(t *testing.T) {
 
 func TestCheckJobMountsSSHForVM(t *testing.T) {
 	run := &v1alpha1.CheckRun{ObjectMeta: metav1.ObjectMeta{Name: "run", Namespace: instancesNS}}
-	job := checkJob("check-run", "inst-a", run, "checker:test", &corev1.ConfigMap{}, true)
+	job := checkJob("check-run", "inst-a", run, "checker:test", &corev1.ConfigMap{}, true, nil)
 	pod := job.Spec.Template.Spec
 	var ssh *corev1.Volume
 	for i := range pod.Volumes {
@@ -326,7 +326,7 @@ func TestCheckJobMountsSSHForVM(t *testing.T) {
 	if m := pod.Containers[0].VolumeMounts; m[len(m)-1].MountPath != SSHMountPath {
 		t.Fatalf("mounts = %+v", m)
 	}
-	if job := checkJob("check-run", "inst-a", run, "checker:test", &corev1.ConfigMap{}, false); len(job.Spec.Template.Spec.Volumes) != 2 {
+	if job := checkJob("check-run", "inst-a", run, "checker:test", &corev1.ConfigMap{}, false, nil); len(job.Spec.Template.Spec.Volumes) != 2 {
 		t.Fatal("pod-only instances mount no SSH keys")
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/Sigeth/brokelabs-core-go/pkg/catalog"
 	"github.com/Sigeth/brokelabs-core-go/pkg/ocipkg"
 	"github.com/Sigeth/brokelabs-core-go/pkg/signing"
+	"github.com/Sigeth/brokelabs-operator/internal/vcluster"
 )
 
 // ConditionMirrored reports whether a challenge is in the registry mirror.
@@ -140,6 +142,15 @@ func (r *MirrorReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	defer cancel()
 	copyErr := r.Copier.Copy(ctx, mirror, ref, true)
 	images := ocipkg.Images(st.Package)
+	for _, m := range st.Package.Spec.Machines {
+		if m.Runtime == v1alpha1.RuntimeVCluster {
+			for _, image := range vcluster.Images(m.Kubernetes) {
+				if !slices.Contains(images, image) {
+					images = append(images, image)
+				}
+			}
+		}
+	}
 	for _, image := range images {
 		if copyErr != nil {
 			break

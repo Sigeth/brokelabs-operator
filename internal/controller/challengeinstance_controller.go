@@ -230,6 +230,17 @@ func (r *ChallengeInstanceReconciler) create(ctx context.Context, ch *v1alpha1.C
 	if err != nil {
 		return err
 	}
+	if hasVCluster(pkg) {
+		apiServers, err := hostAPIServers(ctx, r.APIReader)
+		if err != nil {
+			return err
+		}
+		vclusters, err := vclusterResources(r.Config, inst, pkg, apiServers)
+		if err != nil {
+			return err
+		}
+		objs = append(objs, vclusters...)
+	}
 	for _, obj := range append([]client.Object{instanceNamespace(inst, pkg)}, objs...) {
 		if err := r.Create(ctx, obj); err != nil && !apierrors.IsAlreadyExists(err) {
 			return fmt.Errorf("creating %T %s: %w", obj, obj.GetName(), err)
@@ -251,6 +262,18 @@ func (r *ChallengeInstanceReconciler) machines(ctx context.Context, inst *v1alph
 	var waiting []string
 	for _, m := range pkg.Spec.Machines {
 		st := v1alpha1.MachineStatus{Name: m.Name, Runtime: m.Runtime, Address: machineAddress(m.Name, ns)}
+		if m.Runtime == v1alpha1.RuntimeVCluster {
+			ready, why, err := r.vclusterMachine(ctx, inst, m, pkg)
+			if err != nil {
+				return false, err
+			}
+			st.Ready = ready
+			if !ready {
+				waiting = append(waiting, m.Name+": "+why)
+			}
+			statuses = append(statuses, st)
+			continue
+		}
 		var (
 			obj  client.Object
 			pod  corev1.Pod
@@ -267,6 +290,16 @@ func (r *ChallengeInstanceReconciler) machines(ctx context.Context, inst *v1alph
 		case apierrors.IsNotFound(err):
 			if inst.Status.Phase == v1alpha1.InstanceReady {
 				return false, &fatalError{fmt.Sprintf("machine %s was deleted", m.Name)}
+			}
+			if m.KubeconfigFor != "" {
+				created, err := r.createKubeconfigMachine(ctx, inst, m)
+				if err != nil {
+					return false, err
+				}
+				if !created {
+					waiting = append(waiting, m.Name+": waiting for "+m.KubeconfigFor)
+					break
+				}
 			}
 			waiting = append(waiting, m.Name+": creating")
 		case err != nil:

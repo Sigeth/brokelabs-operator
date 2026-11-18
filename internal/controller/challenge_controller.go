@@ -23,6 +23,7 @@ import (
 
 	"github.com/Sigeth/brokelabs-core-go/api/v1alpha1"
 	"github.com/Sigeth/brokelabs-core-go/pkg/challenge"
+	"github.com/Sigeth/brokelabs-operator/internal/vcluster"
 )
 
 // ChallengeReconciler installs challenges: it resolves and validates the
@@ -209,8 +210,12 @@ func unrunnableReason(cfg Config, pkg *v1alpha1.ChallengePackage, perms *v1alpha
 		switch {
 		case m.Runtime == v1alpha1.RuntimeVM && !cfg.Supports(m.Runtime):
 			reasons = append(reasons, fmt.Sprintf("machine %s: the vm runtime needs KubeVirt, which is not installed", m.Name))
+		case m.Runtime.NeedsUserNamespaces() && !cfg.Supports(m.Runtime):
+			reasons = append(reasons, fmt.Sprintf("machine %s: the %s runtime needs the platform's admission policies, which are not installed", m.Name, m.Runtime))
 		case !cfg.Supports(m.Runtime):
 			reasons = append(reasons, fmt.Sprintf("machine %s: the %s runtime is not supported yet", m.Name, m.Runtime))
+		case m.Runtime == v1alpha1.RuntimeVCluster && m.Kubernetes != "" && vcluster.Kubernetes[m.Kubernetes] == "":
+			reasons = append(reasons, fmt.Sprintf("machine %s: Kubernetes %s is not supported (supported: %s)", m.Name, m.Kubernetes, strings.Join(vcluster.Supported(), ", ")))
 		}
 	}
 	if perms.Egress == v1alpha1.EgressAllowlist {

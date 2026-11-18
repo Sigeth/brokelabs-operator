@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 
 	"github.com/Sigeth/brokelabs-core-go/api/v1alpha1"
 	"github.com/Sigeth/brokelabs-core-go/pkg/ocipkg"
+	"github.com/Sigeth/brokelabs-operator/internal/vcluster"
 )
 
 type copied struct {
@@ -177,5 +179,22 @@ func TestRemoteCopier(t *testing.T) {
 	target, _ := MirrorRef(mirror, image)
 	if _, err := c.Mirror.Resolve(context.Background(), target); err != nil {
 		t.Fatalf("%s: %v", target, err)
+	}
+}
+
+func TestMirrorCopiesVClusterImages(t *testing.T) {
+	ch := installedOCI(t)
+	ch.Status.Package.Spec.Machines = append(ch.Status.Package.Spec.Machines,
+		v1alpha1.Machine{Name: "cluster", Runtime: v1alpha1.RuntimeVCluster, Kubernetes: "1.34"})
+	r, copier := mirrorSetup(t, ch)
+	doReconcile(t, r, types.NamespacedName{Name: "hello"})
+	var refs []string
+	for _, c := range copier.copies {
+		refs = append(refs, c.ref)
+	}
+	for _, want := range vcluster.Images("1.34") {
+		if !slices.Contains(refs, want) {
+			t.Errorf("%s not mirrored: %v", want, refs)
+		}
 	}
 }

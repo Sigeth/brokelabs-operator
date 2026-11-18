@@ -60,6 +60,7 @@ rules:
 - apiGroups:
   - admissionregistration.k8s.io
   resourceNames:
+  - brokelabs-instance-network-policies
   - brokelabs-user-namespaces
   resources:
   - mutatingadmissionpolicies
@@ -68,6 +69,12 @@ rules:
   - validatingadmissionpolicybindings
   verbs:
   - get
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
 - apiGroups:
   - batch
   resources:
@@ -124,6 +131,12 @@ rules:
   - list
   - update
   - watch
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - list
 - apiGroups:
   - kubevirt.io
   resources:

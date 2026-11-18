@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -61,6 +62,7 @@ func main() {
 	flag.StringVar(&gateway, "gateway-service-account", project.Name+"-system/"+project.Name+"-gateway", "Service account of the gateway (namespace/name), allowed to open terminals.")
 	flag.StringVar(&cfg.GatewayExecRole, "gateway-exec-role", project.Name+"-gateway-exec", "ClusterRole bound to the gateway in instance namespaces.")
 	flag.StringVar(&cfg.CheckerExecRole, "checker-exec-role", project.Name+"-checker-exec", "ClusterRole bound to the checker in instance namespaces.")
+	flag.StringVar(&cfg.VClusterRole, "vcluster-role", project.Name+"-vcluster", "ClusterRole bound to the control plane of vcluster machines in instance namespaces.")
 	flag.StringVar(&operatorPods, "operator-pod-labels", "app.kubernetes.io/name=operator", "Labels of the operator's pods (k=v,...), allowed to reach vm machines over SSH.")
 	flag.StringVar(&gatewayPods, "gateway-pod-labels", "app.kubernetes.io/name=gateway", "Labels of the gateway's pods (k=v,...), allowed to reach vm machines over SSH.")
 	flag.StringVar(&plainHTTP, "plain-http-registries", "", "Registries reached over plain HTTP (host:port,...), for local test registries only.")
@@ -114,11 +116,18 @@ func main() {
 	must(err, "creating the exec client")
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	must(err, "creating the Kubernetes client")
-	userNamespaces, err := hasUserNamespacePolicies(context.Background(), clientset)
-	must(err, "detecting the user namespace admission policies")
-	if !userNamespaces {
-		log.Info("user namespace admission policies not found: userns and vcluster runtimes disabled", "policy", v1alpha1.UserNamespacesPolicy)
+	policies, err := hasAdmissionPolicies(context.Background(), clientset)
+	must(err, "detecting the platform admission policies")
+	if policies {
+		cfg.Runtimes = append(cfg.Runtimes, v1alpha1.RuntimeVCluster)
+	} else {
+		log.Info("platform admission policies not found: userns and vcluster runtimes disabled",
+			"policies", []string{v1alpha1.UserNamespacesPolicy, v1alpha1.NetworkPoliciesPolicy})
 	}
+	version, err := clientset.Discovery().ServerVersion()
+	must(err, "reading the Kubernetes version")
+	cfg.HostMinor, err = strconv.Atoi(strings.TrimRight(version.Minor, "+"))
+	must(err, "reading the Kubernetes minor version "+version.Minor)
 
 	plainHTTPRegistries := strings.Split(plainHTTP, ",")
 	registry := controller.RemoteRegistry{Remote: ocipkg.Remote{
@@ -189,17 +198,21 @@ func hasKubeVirt(config *rest.Config) (bool, error) {
 	return false, nil
 }
 
-// hasUserNamespacePolicies reports whether the chart installed the admission
-// policies that put pods of root runtimes in user namespaces (D50): both
-// policies and both bindings must exist, or those namespaces would enforce
-// only the baseline Pod Security Standard.
-func hasUserNamespacePolicies(ctx context.Context, cs kubernetes.Interface) (bool, error) {
-	ar, name, opts := cs.AdmissionregistrationV1(), v1alpha1.UserNamespacesPolicy, metav1.GetOptions{}
-	_, mutating := ar.MutatingAdmissionPolicies().Get(ctx, name, opts)
-	_, mutatingBinding := ar.MutatingAdmissionPolicyBindings().Get(ctx, name, opts)
-	_, validating := ar.ValidatingAdmissionPolicies().Get(ctx, name, opts)
-	_, validatingBinding := ar.ValidatingAdmissionPolicyBindings().Get(ctx, name, opts)
-	for _, err := range []error{mutating, mutatingBinding, validating, validatingBinding} {
+// hasAdmissionPolicies reports whether the chart installed the admission
+// policies root runtimes need: the user namespace policies (D50), without
+// which their namespaces would enforce only the baseline Pod Security
+// Standard, and the network policy guard (D51). Every policy and binding must
+// exist.
+func hasAdmissionPolicies(ctx context.Context, cs kubernetes.Interface) (bool, error) {
+	ar, opts := cs.AdmissionregistrationV1(), metav1.GetOptions{}
+	userns, netpol := v1alpha1.UserNamespacesPolicy, v1alpha1.NetworkPoliciesPolicy
+	_, mutating := ar.MutatingAdmissionPolicies().Get(ctx, userns, opts)
+	_, mutatingBinding := ar.MutatingAdmissionPolicyBindings().Get(ctx, userns, opts)
+	_, validating := ar.ValidatingAdmissionPolicies().Get(ctx, userns, opts)
+	_, validatingBinding := ar.ValidatingAdmissionPolicyBindings().Get(ctx, userns, opts)
+	_, network := ar.ValidatingAdmissionPolicies().Get(ctx, netpol, opts)
+	_, networkBinding := ar.ValidatingAdmissionPolicyBindings().Get(ctx, netpol, opts)
+	for _, err := range []error{mutating, mutatingBinding, validating, validatingBinding, network, networkBinding} {
 		if apierrors.IsNotFound(err) {
 			return false, nil
 		} else if err != nil {
