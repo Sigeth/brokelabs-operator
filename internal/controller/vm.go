@@ -132,14 +132,31 @@ func (a *sshAccess) secret(ns string) (*corev1.Secret, error) {
 	return &corev1.Secret{Data: data}, nil
 }
 
+// bridgedVMs reports whether the vm machines of a package own their pod IPs
+// (bridge binding): when there are two or more of them (D53).
+func bridgedVMs(pkg *v1alpha1.ChallengePackage) bool {
+	n := 0
+	for _, m := range pkg.Spec.Machines {
+		if m.Runtime == v1alpha1.RuntimeVM {
+			n++
+		}
+	}
+	return n >= 2
+}
+
 func sortedMachines(m map[string]sshexec.Key) []string { return slices.Sorted(maps.Keys(m)) }
 
 func cloudInitSecretName(machine string) string { return dnsName(machine+"-", "cloud-init") }
 
 // cloudInitUserData creates the student and checker users with their keys,
 // installs the pinned host key, and disables passwords. The student gets
-// bash when the image has it.
-func cloudInitUserData(m v1alpha1.Machine, a *sshAccess) ([]byte, error) {
+// bash when the image has it. It also writes a plain /etc/resolv.conf: the
+// DHCP name servers with the search domains of the instance namespace, so
+// machines reach each other by name (cp, cp.<namespace>.svc...), as pods do.
+// systemd-resolved's stub would never send *.cluster.local to them (it keeps
+// .local for multicast DNS), and Kubernetes nodes need a resolv.conf without
+// the stub (CoreDNS would loop on it).
+func cloudInitUserData(m v1alpha1.Machine, a *sshAccess, namespace string) ([]byte, error) {
 	host := a.hosts[m.Name]
 	sudo := "ALL=(ALL) NOPASSWD:ALL"
 	config := map[string]any{
@@ -167,7 +184,10 @@ func cloudInitUserData(m v1alpha1.Machine, a *sshAccess) ([]byte, error) {
 				"ssh_authorized_keys": []string{a.checker.Public},
 			},
 		},
-		"runcmd": []string{"if [ -x /bin/bash ]; then usermod -s /bin/bash " + v1alpha1.StudentUser + "; fi"},
+		"runcmd": []string{
+			"if [ -x /bin/bash ]; then usermod -s /bin/bash " + v1alpha1.StudentUser + "; fi",
+			resolvConfScript(namespace),
+		},
 	}
 	data, err := yaml.Marshal(config)
 	if err != nil {
@@ -176,8 +196,16 @@ func cloudInitUserData(m v1alpha1.Machine, a *sshAccess) ([]byte, error) {
 	return append([]byte("#cloud-config\n"), data...), nil
 }
 
+// resolvConfScript replaces /etc/resolv.conf with the upstream name servers
+// (never systemd-resolved's stub) and the search domains of a namespace.
+func resolvConfScript(namespace string) string {
+	search := namespace + ".svc.cluster.local svc.cluster.local cluster.local"
+	return `servers=$(grep -h '^nameserver' /run/systemd/resolve/resolv.conf /etc/resolv.conf 2>/dev/null | grep -v '127\.0\.0\.5[34]' | sort -u | head -3); ` +
+		`if [ -n "$servers" ]; then rm -f /etc/resolv.conf; printf '%s\nsearch ` + search + `\noptions ndots:5\n' "$servers" > /etc/resolv.conf; fi`
+}
+
 func cloudInitSecret(meta metav1.ObjectMeta, m v1alpha1.Machine, a *sshAccess) (*corev1.Secret, error) {
-	userData, err := cloudInitUserData(m, a)
+	userData, err := cloudInitUserData(m, a, meta.Namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -186,8 +214,15 @@ func cloudInitSecret(meta metav1.ObjectMeta, m v1alpha1.Machine, a *sshAccess) (
 }
 
 // machineVMI runs a vm machine. Its labels reach the launcher pod, so the
-// machine Service and network policy apply to it as to pod machines.
-func machineVMI(meta metav1.ObjectMeta, m v1alpha1.Machine) *kubevirtv1.VirtualMachineInstance {
+// machine Service and network policy apply to it as to pod machines. With
+// bridge, the VM takes the pod IP as its own (multi-VM packages: Kubernetes
+// nodes need distinct, routable addresses); otherwise it sits behind
+// KubeVirt's masquerade (every VM sees 10.0.2.2).
+func machineVMI(meta metav1.ObjectMeta, m v1alpha1.Machine, bridge bool) *kubevirtv1.VirtualMachineInstance {
+	binding := kubevirtv1.InterfaceBindingMethod{Masquerade: &kubevirtv1.InterfaceMasquerade{}}
+	if bridge {
+		binding = kubevirtv1.InterfaceBindingMethod{Bridge: &kubevirtv1.InterfaceBridge{}}
+	}
 	meta.Labels = withLabels(withLabels(meta.Labels, LabelMachine, m.Name), LabelRole, RoleMachine)
 	cpu, memory := challenge.MachineResources(m)
 	resources := corev1.ResourceList{corev1.ResourceCPU: cpu, corev1.ResourceMemory: memory}
@@ -209,7 +244,7 @@ func machineVMI(meta metav1.ObjectMeta, m v1alpha1.Machine) *kubevirtv1.VirtualM
 					},
 					Interfaces: []kubevirtv1.Interface{{
 						Name:                   "default",
-						InterfaceBindingMethod: kubevirtv1.InterfaceBindingMethod{Masquerade: &kubevirtv1.InterfaceMasquerade{}},
+						InterfaceBindingMethod: binding,
 					}},
 				},
 			},

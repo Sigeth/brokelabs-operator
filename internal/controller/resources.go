@@ -89,7 +89,7 @@ func instanceResources(cfg Config, inst *v1alpha1.ChallengeInstance, pkg *v1alph
 		if err != nil {
 			return nil, err
 		}
-		objs = append(objs, userData, machineVMI(meta(m.Name), m))
+		objs = append(objs, userData, machineVMI(meta(m.Name), m, bridgedVMs(pkg)))
 	}
 	return objs, nil
 }

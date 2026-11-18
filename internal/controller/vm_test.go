@@ -200,7 +200,7 @@ func TestVMInstanceResources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, err := cloudInitUserData(ch.Status.Package.Spec.Machines[0], stored)
+	again, err := cloudInitUserData(ch.Status.Package.Spec.Machines[0], stored, "inst-hello-alice")
 	if err != nil || string(again) != string(userData) {
 		t.Fatalf("a retry would render different keys (%v)", err)
 	}
@@ -338,5 +338,26 @@ func TestCloudInitStatus(t *testing.T) {
 		if got := cloudInitStatus([]byte(out)); got != want {
 			t.Errorf("cloudInitStatus(%q) = %q, want %q", out, got, want)
 		}
+	}
+}
+
+func TestVMBindingAndDNS(t *testing.T) {
+	one := &v1alpha1.ChallengePackage{Spec: v1alpha1.ChallengePackageSpec{Machines: []v1alpha1.Machine{
+		{Name: "box", Runtime: v1alpha1.RuntimeVM}, {Name: "ws", Runtime: v1alpha1.RuntimePod},
+	}}}
+	two := &v1alpha1.ChallengePackage{Spec: v1alpha1.ChallengePackageSpec{Machines: []v1alpha1.Machine{
+		{Name: "cp", Runtime: v1alpha1.RuntimeVM}, {Name: "worker", Runtime: v1alpha1.RuntimeVM},
+	}}}
+	if bridgedVMs(one) || !bridgedVMs(two) {
+		t.Fatal("bridge binding is for packages with two vm machines or more")
+	}
+	if vmi := machineVMI(metav1.ObjectMeta{Name: "cp"}, two.Spec.Machines[0], true); vmi.Spec.Domain.Devices.Interfaces[0].Bridge == nil {
+		t.Errorf("interfaces = %+v", vmi.Spec.Domain.Devices.Interfaces)
+	}
+	if vmi := machineVMI(metav1.ObjectMeta{Name: "box"}, one.Spec.Machines[0], false); vmi.Spec.Domain.Devices.Interfaces[0].Masquerade == nil {
+		t.Errorf("interfaces = %+v", vmi.Spec.Domain.Devices.Interfaces)
+	}
+	if script := resolvConfScript("inst-x"); !strings.Contains(script, "search inst-x.svc.cluster.local svc.cluster.local cluster.local") {
+		t.Errorf("script = %s", script)
 	}
 }
