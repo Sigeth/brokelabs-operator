@@ -230,7 +230,7 @@ func (r *ChallengeInstanceReconciler) create(ctx context.Context, ch *v1alpha1.C
 	if err != nil {
 		return err
 	}
-	for _, obj := range append([]client.Object{instanceNamespace(inst)}, objs...) {
+	for _, obj := range append([]client.Object{instanceNamespace(inst, pkg)}, objs...) {
 		if err := r.Create(ctx, obj); err != nil && !apierrors.IsAlreadyExists(err) {
 			return fmt.Errorf("creating %T %s: %w", obj, obj.GetName(), err)
 		}

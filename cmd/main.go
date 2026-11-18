@@ -13,6 +13,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/selection"
@@ -113,6 +114,11 @@ func main() {
 	must(err, "creating the exec client")
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	must(err, "creating the Kubernetes client")
+	userNamespaces, err := hasUserNamespacePolicies(context.Background(), clientset)
+	must(err, "detecting the user namespace admission policies")
+	if !userNamespaces {
+		log.Info("user namespace admission policies not found: userns and vcluster runtimes disabled", "policy", v1alpha1.UserNamespacesPolicy)
+	}
 
 	plainHTTPRegistries := strings.Split(plainHTTP, ",")
 	registry := controller.RemoteRegistry{Remote: ocipkg.Remote{
@@ -181,6 +187,26 @@ func hasKubeVirt(config *rest.Config) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// hasUserNamespacePolicies reports whether the chart installed the admission
+// policies that put pods of root runtimes in user namespaces (D50): both
+// policies and both bindings must exist, or those namespaces would enforce
+// only the baseline Pod Security Standard.
+func hasUserNamespacePolicies(ctx context.Context, cs kubernetes.Interface) (bool, error) {
+	ar, name, opts := cs.AdmissionregistrationV1(), v1alpha1.UserNamespacesPolicy, metav1.GetOptions{}
+	_, mutating := ar.MutatingAdmissionPolicies().Get(ctx, name, opts)
+	_, mutatingBinding := ar.MutatingAdmissionPolicyBindings().Get(ctx, name, opts)
+	_, validating := ar.ValidatingAdmissionPolicies().Get(ctx, name, opts)
+	_, validatingBinding := ar.ValidatingAdmissionPolicyBindings().Get(ctx, name, opts)
+	for _, err := range []error{mutating, mutatingBinding, validating, validatingBinding} {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		} else if err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 // cacheOptions keeps only BrokeLabs objects in memory: instance pods and VMs,

@@ -96,13 +96,30 @@ func instanceLabels(inst *v1alpha1.ChallengeInstance) map[string]string {
 }
 
 // instanceNamespace is the namespace of an instance. Its pods run under the
-// "restricted" Pod Security Standard.
-func instanceNamespace(inst *v1alpha1.ChallengeInstance) *corev1.Namespace {
+// "restricted" Pod Security Standard, or "baseline" in user namespaces when a
+// machine runs pods as root (userns and vcluster, D50): the chart's admission
+// policies set and require hostUsers: false in namespaces labelled for it.
+func instanceNamespace(inst *v1alpha1.ChallengeInstance, pkg *v1alpha1.ChallengePackage) *corev1.Namespace {
 	labels := instanceLabels(inst)
+	level := "restricted"
+	if needsUserNamespaces(pkg) {
+		level = "baseline"
+		labels[v1alpha1.LabelUserNamespaces] = "true"
+	}
 	for _, mode := range []string{"enforce", "audit", "warn"} {
-		labels["pod-security.kubernetes.io/"+mode] = "restricted"
+		labels["pod-security.kubernetes.io/"+mode] = level
 	}
 	return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: InstanceNamespace(inst.Name), Labels: labels}}
+}
+
+// needsUserNamespaces reports whether a machine of the package runs pods as root.
+func needsUserNamespaces(pkg *v1alpha1.ChallengePackage) bool {
+	for _, m := range pkg.Spec.Machines {
+		if m.Runtime.NeedsUserNamespaces() {
+			return true
+		}
+	}
+	return false
 }
 
 // quota caps the namespace at the machines (with the launcher overhead of

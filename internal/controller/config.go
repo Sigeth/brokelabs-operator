@@ -33,9 +33,13 @@ type Config struct {
 	// vm machines over SSH (terminals).
 	GatewayPods map[string]string
 	// Runtimes this operator can provision on this cluster (pod when empty).
-	// vm needs KubeVirt, detected at startup.
+	// vm needs KubeVirt, and userns and vcluster need the user namespace
+	// admission policies (D50), all detected at startup.
 	Runtimes []v1alpha1.Runtime
 }
+
+// The operator reads the user namespace admission policies (D50) at startup.
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingadmissionpolicies;mutatingadmissionpolicybindings;validatingadmissionpolicies;validatingadmissionpolicybindings,verbs=get,resourceNames=brokelabs-user-namespaces
 
 // Supports reports whether instances can use a runtime.
 func (c Config) Supports(r v1alpha1.Runtime) bool {

@@ -58,6 +58,17 @@ rules:
   verbs:
   - get
 - apiGroups:
+  - admissionregistration.k8s.io
+  resourceNames:
+  - brokelabs-user-namespaces
+  resources:
+  - mutatingadmissionpolicies
+  - mutatingadmissionpolicybindings
+  - validatingadmissionpolicies
+  - validatingadmissionpolicybindings
+  verbs:
+  - get
+- apiGroups:
   - batch
   resources:
   - jobs
