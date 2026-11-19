@@ -195,16 +195,17 @@ func controlPlaneNetworkPolicy(cfg Config, machine string, apiServers []apiServe
 }
 
 // workloadsNetworkPolicy keeps the pods synced from virtual clusters inside
-// the namespace. The student's own policies can only narrow it (D51).
+// the namespace: egress only (D51). It must not allow any ingress: policies
+// add up, so an ingress allow here would override the student's own
+// NetworkPolicies (a default deny between their pods). Other instances
+// cannot reach these pods anyway: their egress stays in their namespace.
 func workloadsNetworkPolicy() networkingv1.NetworkPolicySpec {
-	namespacePods := []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{}}}
 	return networkingv1.NetworkPolicySpec{
 		PodSelector: metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
 			Key: "vcluster.loft.sh/managed-by", Operator: metav1.LabelSelectorOpExists,
 		}}},
-		PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress, networkingv1.PolicyTypeEgress},
-		Ingress:     []networkingv1.NetworkPolicyIngressRule{{From: namespacePods}},
-		Egress:      []networkingv1.NetworkPolicyEgressRule{{To: namespacePods}},
+		PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
+		Egress:      []networkingv1.NetworkPolicyEgressRule{{To: []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{}}}}},
 	}
 }
 

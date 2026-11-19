@@ -97,7 +97,11 @@ func TestVClusterInstanceResources(t *testing.T) {
 			}
 		}
 	}
-	// Synced pods stay in the namespace.
+	// Synced pods stay in the namespace, and nothing of ours allows ingress
+	// to them: it would override the student's own policies.
+	if len(policies[1].Spec.Ingress) > 0 || slices.Contains(policies[1].Spec.PolicyTypes, networkingv1.PolicyTypeIngress) {
+		t.Errorf("workloads policy allows ingress: %+v", policies[1].Spec)
+	}
 	for _, rule := range policies[1].Spec.Egress {
 		for _, peer := range rule.To {
 			if peer.IPBlock != nil || peer.NamespaceSelector != nil {
